@@ -9,6 +9,11 @@ venv/
 env/
 ENV/
 
+# Microsoft Office temporary lock files
+~$*
+~$*.xlsx
+
+
 # IDE & Editor files
 .vscode/
 .idea/
