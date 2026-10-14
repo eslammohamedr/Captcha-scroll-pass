@@ -1,6 +1,6 @@
-"""OPPO Serial & IMEI Verification GUI Application.
+"""OPPO Serial & IMEI Verification GUI Application (Dark Mode Edition).
 
-A complete Windows Desktop application for bulk-checking OPPO devices
+A professional, high-DPI Windows Desktop application for bulk-checking OPPO devices
 with automated Dingxiang slider CAPTCHA solving, live progress tracking,
 interactive results table, and formatted Excel reporting.
 """
@@ -17,6 +17,14 @@ import threading
 import time
 from pathlib import Path
 from typing import Any
+
+# Determine application base path (supports PyInstaller frozen executable)
+if getattr(sys, "frozen", False):
+    APP_DIR = Path(sys._MEIPASS)
+    RUN_DIR = Path(sys.executable).parent
+else:
+    APP_DIR = Path(__file__).resolve().parent
+    RUN_DIR = APP_DIR
 
 # Enable High-DPI awareness on Windows before importing Tkinter
 if sys.platform == "win32":
@@ -54,29 +62,49 @@ except Exception as e:
     CHECKER_IMPORT_ERROR = str(e)
 
 
-# Default styles & color palette (Modern clean Windows aesthetic)
-COLOR_PRIMARY = "#0078D4"       # Fluent Blue
-COLOR_PRIMARY_HOVER = "#005A9E"
-COLOR_SUCCESS = "#107C41"       # Excel Green
-COLOR_SUCCESS_HOVER = "#0B5A2F"
-COLOR_DANGER = "#D83B01"        # Microsoft Red
-COLOR_DANGER_HOVER = "#A80000"
-COLOR_BG = "#F3F3F3"
-COLOR_CARD_BG = "#FFFFFF"
-COLOR_TEXT_MAIN = "#1A1A1A"
-COLOR_TEXT_MUTED = "#605E5C"
-COLOR_BORDER = "#E1DFDD"
+# ==============================================================================
+# Premium Dark Mode Color Palette (GitHub / VS Code Dark Style)
+# ==============================================================================
+DARK_BG_MAIN = "#0D1117"         # Root window deep background
+DARK_BG_SURFACE = "#161B22"      # Cards, panels, sidebars
+DARK_BG_SURFACE_ALT = "#21262D"  # Inner containers, table headers
+DARK_BORDER = "#30363D"          # Subtle dividers
+DARK_INPUT_BG = "#0D1117"        # Text entries and spinboxes
+DARK_INPUT_FG = "#F0F6FC"        # Bright text inside inputs
+
+DARK_TEXT_PRIMARY = "#F0F6FC"    # Primary white text
+DARK_TEXT_MUTED = "#8B949E"      # Secondary gray labels
+DARK_TEXT_DIM = "#6E7681"        # Disabled / subtle hints
+
+DARK_ACCENT_BLUE = "#58A6FF"     # Active highlights & info
+DARK_ACCENT_CYAN = "#388BFD"
+DARK_BTN_GREEN = "#238636"       # Start button (Vibrant emerald)
+DARK_BTN_GREEN_HOVER = "#2EA043"
+DARK_BTN_RED = "#DA3633"         # Stop button (Crimson)
+DARK_BTN_RED_HOVER = "#F85149"
+DARK_BTN_NEUTRAL = "#21262D"     # Secondary action buttons
+DARK_BTN_NEUTRAL_HOVER = "#30363D"
+
+# Table row badge colors
+DARK_TAG_YES_BG = "#122E1A"
+DARK_TAG_YES_FG = "#7EE787"
+DARK_TAG_NO_BG = "#38290B"
+DARK_TAG_NO_FG = "#F2CC60"
+DARK_TAG_PENDING_BG = "#132D48"
+DARK_TAG_PENDING_FG = "#79C0FF"
+DARK_TAG_FAIL_BG = "#3B181A"
+DARK_TAG_FAIL_FG = "#FFA198"
 
 
 class OppoCheckerGUI:
     def __init__(self, root: tk.Tk) -> None:
         self.root = root
-        self.root.title("OPPO Device Verification & CAPTCHA Solver")
-        self.root.geometry("1180x820")
-        self.root.minsize(980, 680)
+        self.root.title("OPPO Device Verification Portal — Closed-Loop CAPTCHA Solver")
+        self.root.geometry("1220x840")
+        self.root.minsize(1020, 700)
 
-        # Apply base background
-        self.root.configure(bg=COLOR_BG)
+        # Apply dark background to root
+        self.root.configure(bg=DARK_BG_MAIN)
 
         # Threading & queues
         self.msg_queue: queue.Queue[tuple[str, Any]] = queue.Queue()
@@ -86,7 +114,7 @@ class OppoCheckerGUI:
 
         # Current loaded serials
         self.loaded_serials: list[str] = []
-        self.active_output_file: Path = Path("oppo_results.xlsx").resolve()
+        self.active_output_file: Path = (RUN_DIR / "oppo_results.xlsx").resolve()
 
         # Stats counters
         self.stat_total = tk.IntVar(value=0)
@@ -96,16 +124,16 @@ class OppoCheckerGUI:
         self.stat_pending = tk.IntVar(value=0)
         self.stat_failed = tk.IntVar(value=0)
 
-        # Settings variables
-        self.var_headful = tk.BooleanVar(value=False)
+        # Settings variables (DEFAULT HEADFUL=TRUE so Chrome is visible by default!)
+        self.var_headful = tk.BooleanVar(value=True)
         self.var_skip_verified = tk.BooleanVar(value=True)
         self.var_delay = tk.DoubleVar(value=2.0)
         self.var_limit = tk.StringVar(value="")
         self.var_offset = tk.DoubleVar(value=0.0)
         self.var_output_path = tk.StringVar(value=str(self.active_output_file))
 
-        # Setup custom styles
-        self._setup_styles()
+        # Setup custom dark styles
+        self._setup_dark_styles()
 
         # Build UI layout
         self._build_ui()
@@ -116,142 +144,205 @@ class OppoCheckerGUI:
         # Log system status on launch
         self._initial_system_check()
 
-    def _setup_styles(self) -> None:
+    def _setup_dark_styles(self) -> None:
         style = ttk.Style()
         try:
             style.theme_use("clam")
         except Exception:
             pass
 
-        # Global base styling
-        style.configure(".", font=("Segoe UI", 9), background=COLOR_BG)
-        style.configure("TFrame", background=COLOR_BG)
-        style.configure("Card.TFrame", background=COLOR_CARD_BG, relief="solid", borderwidth=1)
-        style.configure("TLabel", background=COLOR_BG, foreground=COLOR_TEXT_MAIN)
-        style.configure("Card.TLabel", background=COLOR_CARD_BG, foreground=COLOR_TEXT_MAIN)
+        # Global base styling in dark mode
+        style.configure(".", font=("Segoe UI", 9), background=DARK_BG_MAIN, foreground=DARK_TEXT_PRIMARY)
+        style.configure("TFrame", background=DARK_BG_MAIN)
+        style.configure("Surface.TFrame", background=DARK_BG_SURFACE)
+        style.configure("TLabel", background=DARK_BG_MAIN, foreground=DARK_TEXT_PRIMARY)
+        style.configure("Surface.TLabel", background=DARK_BG_SURFACE, foreground=DARK_TEXT_PRIMARY)
 
         # Headers
-        style.configure("Title.TLabel", font=("Segoe UI", 14, "bold"), foreground=COLOR_TEXT_MAIN)
-        style.configure("Subtitle.TLabel", font=("Segoe UI", 9), foreground=COLOR_TEXT_MUTED)
-        style.configure("Section.TLabel", font=("Segoe UI", 10, "bold"), foreground=COLOR_TEXT_MAIN)
+        style.configure("Title.TLabel", font=("Segoe UI", 13, "bold"), foreground=DARK_TEXT_PRIMARY)
+        style.configure("Subtitle.TLabel", font=("Segoe UI", 9), foreground=DARK_TEXT_MUTED)
+        style.configure("Section.TLabel", font=("Segoe UI", 10, "bold"), foreground=DARK_TEXT_PRIMARY)
 
-        # Stats styles
-        style.configure("StatNumber.TLabel", font=("Segoe UI", 16, "bold"), foreground=COLOR_PRIMARY)
-        style.configure("StatNumberSuccess.TLabel", font=("Segoe UI", 16, "bold"), foreground=COLOR_SUCCESS)
-        style.configure("StatNumberDanger.TLabel", font=("Segoe UI", 16, "bold"), foreground=COLOR_DANGER)
-        style.configure("StatNumberWarning.TLabel", font=("Segoe UI", 16, "bold"), foreground="#C19C00")
-        style.configure("StatNumberInfo.TLabel", font=("Segoe UI", 16, "bold"), foreground="#0078D4")
-        style.configure("StatLabel.TLabel", font=("Segoe UI", 8), foreground=COLOR_TEXT_MUTED)
+        # Stat cards styling
+        style.configure("StatNumber.TLabel", font=("Segoe UI", 17, "bold"), foreground=DARK_ACCENT_BLUE, background=DARK_BG_SURFACE)
+        style.configure("StatNumberSuccess.TLabel", font=("Segoe UI", 17, "bold"), foreground="#7EE787", background=DARK_BG_SURFACE)
+        style.configure("StatNumberWarning.TLabel", font=("Segoe UI", 17, "bold"), foreground="#F2CC60", background=DARK_BG_SURFACE)
+        style.configure("StatNumberInfo.TLabel", font=("Segoe UI", 17, "bold"), foreground="#79C0FF", background=DARK_BG_SURFACE)
+        style.configure("StatNumberDanger.TLabel", font=("Segoe UI", 17, "bold"), foreground="#FFA198", background=DARK_BG_SURFACE)
+        style.configure("StatLabel.TLabel", font=("Segoe UI", 8), foreground=DARK_TEXT_MUTED, background=DARK_BG_SURFACE)
 
-        # Notebook tabs
-        style.configure("TNotebook", background=COLOR_BG)
-        style.configure("TNotebook.Tab", font=("Segoe UI", 9, "bold"), padding=[12, 6])
-        style.map("TNotebook.Tab", background=[("selected", COLOR_CARD_BG)], foreground=[("selected", COLOR_PRIMARY)])
+        # Notebook tabs (Dark Mode)
+        style.configure("TNotebook", background=DARK_BG_MAIN, borderwidth=0)
+        style.configure(
+            "TNotebook.Tab",
+            font=("Segoe UI", 9, "bold"),
+            padding=[14, 6],
+            background=DARK_BG_SURFACE_ALT,
+            foreground=DARK_TEXT_MUTED,
+            borderwidth=0,
+        )
+        style.map(
+            "TNotebook.Tab",
+            background=[("selected", DARK_BG_SURFACE)],
+            foreground=[("selected", DARK_ACCENT_BLUE)],
+        )
 
-        # Treeview table
-        style.configure("Treeview", font=("Segoe UI", 9), rowheight=26, background=COLOR_CARD_BG, fieldbackground=COLOR_CARD_BG)
-        style.configure("Treeview.Heading", font=("Segoe UI", 9, "bold"), background="#EAEAEA", foreground=COLOR_TEXT_MAIN)
-        style.map("Treeview", background=[("selected", "#CCE8FF")], foreground=[("selected", "#000000")])
+        # Treeview table in Dark Mode
+        style.configure(
+            "Treeview",
+            font=("Segoe UI", 9),
+            rowheight=28,
+            background=DARK_BG_SURFACE,
+            fieldbackground=DARK_BG_SURFACE,
+            foreground=DARK_TEXT_PRIMARY,
+            borderwidth=0,
+        )
+        style.configure(
+            "Treeview.Heading",
+            font=("Segoe UI", 9, "bold"),
+            background=DARK_BG_SURFACE_ALT,
+            foreground=DARK_TEXT_PRIMARY,
+            relief="flat",
+        )
+        style.map(
+            "Treeview",
+            background=[("selected", "#1F4068")],
+            foreground=[("selected", "#FFFFFF")],
+        )
 
         # Progress bar
-        style.configure("Accent.Horizontal.TProgressbar", troughcolor="#E1DFDD", background=COLOR_PRIMARY, thickness=12)
+        style.configure(
+            "Accent.Horizontal.TProgressbar",
+            troughcolor=DARK_BG_SURFACE_ALT,
+            background=DARK_ACCENT_BLUE,
+            thickness=12,
+            borderwidth=0,
+        )
 
     def _build_ui(self) -> None:
-        # Top banner frame
-        banner_frame = tk.Frame(self.root, bg=COLOR_CARD_BG, height=65, bd=0, highlightthickness=1, highlightbackground=COLOR_BORDER)
+        # Top Header Banner
+        banner_frame = tk.Frame(self.root, bg=DARK_BG_SURFACE, height=68, bd=0, highlightthickness=1, highlightbackground=DARK_BORDER)
         banner_frame.pack(side=tk.TOP, fill=tk.X, padx=0, pady=0)
         banner_frame.pack_propagate(False)
 
-        banner_inner = tk.Frame(banner_frame, bg=COLOR_CARD_BG)
-        banner_inner.pack(fill=tk.BOTH, expand=True, padx=18, pady=8)
+        banner_inner = tk.Frame(banner_frame, bg=DARK_BG_SURFACE)
+        banner_inner.pack(fill=tk.BOTH, expand=True, padx=20, pady=10)
 
-        lbl_title = tk.Label(banner_inner, text="OPPO Device Verification Portal", font=("Segoe UI", 13, "bold"), bg=COLOR_CARD_BG, fg=COLOR_TEXT_MAIN)
+        # Logo / Title box
+        title_box = tk.Frame(banner_inner, bg=DARK_BG_SURFACE)
+        title_box.pack(side=tk.LEFT, anchor=tk.W)
+
+        lbl_title = tk.Label(
+            title_box,
+            text="OPPO Device Verification Portal",
+            font=("Segoe UI", 13, "bold"),
+            bg=DARK_BG_SURFACE,
+            fg=DARK_TEXT_PRIMARY,
+        )
         lbl_title.pack(side=tk.LEFT, anchor=tk.W)
 
-        lbl_sub = tk.Label(banner_inner, text="  |  Automated Closed-Loop OpenCV CAPTCHA Solver", font=("Segoe UI", 9), bg=COLOR_CARD_BG, fg=COLOR_TEXT_MUTED)
-        lbl_sub.pack(side=tk.LEFT, anchor=tk.W, pady=(2, 0))
+        lbl_badge = tk.Label(
+            title_box,
+            text=" DARK EDITION • v2.0 ",
+            font=("Segoe UI", 8, "bold"),
+            bg="#238636",
+            fg="#FFFFFF",
+            padx=6,
+            pady=1,
+        )
+        lbl_badge.pack(side=tk.LEFT, padx=(10, 0))
+
+        lbl_sub = tk.Label(
+            banner_inner,
+            text="Closed-Loop OpenCV Slider CAPTCHA Solver",
+            font=("Segoe UI", 9),
+            bg=DARK_BG_SURFACE,
+            fg=DARK_TEXT_MUTED,
+        )
+        lbl_sub.pack(side=tk.LEFT, anchor=tk.W, padx=(8, 0), pady=(2, 0))
 
         # Top right quick action buttons
-        btn_box = tk.Frame(banner_inner, bg=COLOR_CARD_BG)
+        btn_box = tk.Frame(banner_inner, bg=DARK_BG_SURFACE)
         btn_box.pack(side=tk.RIGHT)
 
         btn_open_excel = tk.Button(
             btn_box,
-            text="📊 Open Excel",
+            text="📊 Open Excel File",
             font=("Segoe UI", 9, "bold"),
-            bg="#E8F4EC",
-            fg=COLOR_SUCCESS,
-            activebackground="#D0EAD6",
-            activeforeground=COLOR_SUCCESS,
+            bg="#122E1A",
+            fg="#7EE787",
+            activebackground="#238636",
+            activeforeground="#FFFFFF",
             relief=tk.FLAT,
-            padx=10,
-            pady=4,
+            padx=12,
+            pady=5,
             cursor="hand2",
             command=self.open_excel_file,
         )
-        btn_open_excel.pack(side=tk.LEFT, padx=5)
+        btn_open_excel.pack(side=tk.LEFT, padx=6)
 
         btn_setup = tk.Button(
             btn_box,
             text="⚙ Setup Browser",
             font=("Segoe UI", 9),
-            bg="#F0F0F0",
-            fg=COLOR_TEXT_MAIN,
-            activebackground="#E5E5E5",
+            bg=DARK_BTN_NEUTRAL,
+            fg=DARK_TEXT_PRIMARY,
+            activebackground=DARK_BTN_NEUTRAL_HOVER,
+            activeforeground=DARK_TEXT_PRIMARY,
             relief=tk.FLAT,
             padx=10,
-            pady=4,
+            pady=5,
             cursor="hand2",
             command=self.setup_playwright_browsers,
         )
-        btn_setup.pack(side=tk.LEFT, padx=5)
+        btn_setup.pack(side=tk.LEFT, padx=4)
 
         # Stat cards row
-        stats_frame = tk.Frame(self.root, bg=COLOR_BG)
-        stats_frame.pack(side=tk.TOP, fill=tk.X, padx=14, pady=(10, 6))
+        stats_frame = tk.Frame(self.root, bg=DARK_BG_MAIN)
+        stats_frame.pack(side=tk.TOP, fill=tk.X, padx=16, pady=(10, 6))
 
-        self._create_stat_card(stats_frame, "Total Serials", self.stat_total, "StatNumber.TLabel", 0)
+        self._create_stat_card(stats_frame, "Total Loaded", self.stat_total, "StatNumber.TLabel", 0)
         self._create_stat_card(stats_frame, "Processed", self.stat_processed, "StatNumberInfo.TLabel", 1)
         self._create_stat_card(stats_frame, "Activated (Yes)", self.stat_activated, "StatNumberSuccess.TLabel", 2)
         self._create_stat_card(stats_frame, "Not Activated (No)", self.stat_not_activated, "StatNumberWarning.TLabel", 3)
         self._create_stat_card(stats_frame, "Pending Sync", self.stat_pending, "StatNumberInfo.TLabel", 4)
-        self._create_stat_card(stats_frame, "Failed / Errors", self.stat_failed, "StatNumberDanger.TLabel", 5)
+        self._create_stat_card(stats_frame, "Errors / Failed", self.stat_failed, "StatNumberDanger.TLabel", 5)
 
         # Split pane (Left: Input & Controls, Right: Table & Logs)
-        main_split = tk.PanedWindow(self.root, orient=tk.HORIZONTAL, bg=COLOR_BORDER, sashwidth=4, bd=0)
-        main_split.pack(side=tk.TOP, fill=tk.BOTH, expand=True, padx=14, pady=(6, 12))
+        main_split = tk.PanedWindow(self.root, orient=tk.HORIZONTAL, bg=DARK_BORDER, sashwidth=4, bd=0)
+        main_split.pack(side=tk.TOP, fill=tk.BOTH, expand=True, padx=16, pady=(6, 14))
 
         # Left panel (Input & Settings)
-        left_container = tk.Frame(main_split, bg=COLOR_CARD_BG, bd=0, highlightthickness=1, highlightbackground=COLOR_BORDER, width=380)
+        left_container = tk.Frame(main_split, bg=DARK_BG_SURFACE, bd=0, highlightthickness=1, highlightbackground=DARK_BORDER, width=400)
         left_container.pack_propagate(False)
-        main_split.add(left_container, minsize=320)
+        main_split.add(left_container, minsize=350)
 
         self._build_left_panel(left_container)
 
         # Right panel (Live Results & Activity Logs)
-        right_container = tk.Frame(main_split, bg=COLOR_CARD_BG, bd=0, highlightthickness=1, highlightbackground=COLOR_BORDER)
-        main_split.add(right_container, minsize=500)
+        right_container = tk.Frame(main_split, bg=DARK_BG_SURFACE, bd=0, highlightthickness=1, highlightbackground=DARK_BORDER)
+        main_split.add(right_container, minsize=520)
 
         self._build_right_panel(right_container)
 
     def _create_stat_card(self, parent: tk.Widget, title: str, variable: tk.IntVar, style_name: str, col: int) -> None:
-        card = tk.Frame(parent, bg=COLOR_CARD_BG, bd=0, highlightthickness=1, highlightbackground=COLOR_BORDER)
+        card = tk.Frame(parent, bg=DARK_BG_SURFACE, bd=0, highlightthickness=1, highlightbackground=DARK_BORDER)
         card.grid(row=0, column=col, sticky="nsew", padx=3, pady=2)
         parent.grid_columnconfigure(col, weight=1)
 
-        inner = tk.Frame(card, bg=COLOR_CARD_BG)
-        inner.pack(fill=tk.BOTH, expand=True, padx=10, pady=6)
+        inner = tk.Frame(card, bg=DARK_BG_SURFACE)
+        inner.pack(fill=tk.BOTH, expand=True, padx=12, pady=8)
 
         num_lbl = ttk.Label(inner, textvariable=variable, style=style_name)
         num_lbl.pack(anchor=tk.CENTER)
 
         lbl = ttk.Label(inner, text=title, style="StatLabel.TLabel")
-        lbl.pack(anchor=tk.CENTER)
+        lbl.pack(anchor=tk.CENTER, pady=(2, 0))
 
     def _build_left_panel(self, parent: tk.Widget) -> None:
-        canvas = tk.Canvas(parent, bg=COLOR_CARD_BG, bd=0, highlightthickness=0)
+        canvas = tk.Canvas(parent, bg=DARK_BG_SURFACE, bd=0, highlightthickness=0)
         scrollbar = ttk.Scrollbar(parent, orient="vertical", command=canvas.yview)
-        scrollable_frame = tk.Frame(canvas, bg=COLOR_CARD_BG)
+        scrollable_frame = tk.Frame(canvas, bg=DARK_BG_SURFACE)
 
         scrollable_frame.bind(
             "<Configure>",
@@ -268,34 +359,46 @@ class OppoCheckerGUI:
         canvas.pack(side=tk.LEFT, fill=tk.BOTH, expand=True)
         scrollbar.pack(side=tk.RIGHT, fill=tk.Y)
 
-        pad_x = 12
-        pad_y = 6
+        pad_x = 14
 
-        # --- Section 1: Serials Input ---
-        lbl_sec1 = tk.Label(scrollable_frame, text="1. Serials / IMEIs to Check", font=("Segoe UI", 10, "bold"), bg=COLOR_CARD_BG, fg=COLOR_TEXT_MAIN)
-        lbl_sec1.pack(anchor=tk.W, padx=pad_x, pady=(10, 4))
+        # ======================================================================
+        # SECTION 1: Serials Input
+        # ======================================================================
+        lbl_sec1 = tk.Label(scrollable_frame, text="1. Select Serials / IMEIs to Check", font=("Segoe UI", 10, "bold"), bg=DARK_BG_SURFACE, fg=DARK_TEXT_PRIMARY)
+        lbl_sec1.pack(anchor=tk.W, padx=pad_x, pady=(12, 4))
 
         input_nb = ttk.Notebook(scrollable_frame)
         input_nb.pack(fill=tk.X, padx=pad_x, pady=2)
 
         # Tab A: File Upload
-        tab_file = tk.Frame(input_nb, bg=COLOR_CARD_BG, padx=8, pady=8)
+        tab_file = tk.Frame(input_nb, bg=DARK_BG_SURFACE, padx=10, pady=10)
         input_nb.add(tab_file, text="📁 File (.txt, .xlsx, .csv)")
 
-        self.lbl_selected_file = tk.Label(tab_file, text="Current: serials.txt (Auto-detected)", font=("Segoe UI", 8), bg=COLOR_CARD_BG, fg=COLOR_TEXT_MUTED, wraplength=280, justify=tk.LEFT)
+        self.lbl_selected_file = tk.Label(
+            tab_file,
+            text="Current: serials.txt (Auto-detected)",
+            font=("Segoe UI", 8),
+            bg=DARK_BG_SURFACE,
+            fg=DARK_TEXT_MUTED,
+            wraplength=310,
+            justify=tk.LEFT,
+        )
         self.lbl_selected_file.pack(anchor=tk.W, pady=(0, 6))
 
-        file_btn_row = tk.Frame(tab_file, bg=COLOR_CARD_BG)
+        file_btn_row = tk.Frame(tab_file, bg=DARK_BG_SURFACE)
         file_btn_row.pack(fill=tk.X)
 
         btn_browse_serials = tk.Button(
             file_btn_row,
             text="Choose File...",
             font=("Segoe UI", 9),
-            bg="#EAEAEA",
+            bg=DARK_BTN_NEUTRAL,
+            fg=DARK_TEXT_PRIMARY,
+            activebackground=DARK_BTN_NEUTRAL_HOVER,
             relief=tk.FLAT,
-            padx=8,
+            padx=10,
             pady=3,
+            cursor="hand2",
             command=self.browse_serials_file,
         )
         btn_browse_serials.pack(side=tk.LEFT)
@@ -304,22 +407,35 @@ class OppoCheckerGUI:
             file_btn_row,
             text="🔄 Reload",
             font=("Segoe UI", 9),
-            bg="#EAEAEA",
+            bg=DARK_BTN_NEUTRAL,
+            fg=DARK_TEXT_PRIMARY,
+            activebackground=DARK_BTN_NEUTRAL_HOVER,
             relief=tk.FLAT,
-            padx=8,
+            padx=10,
             pady=3,
+            cursor="hand2",
             command=self.load_serials_from_default,
         )
         btn_reload_serials.pack(side=tk.LEFT, padx=6)
 
         # Tab B: Direct Paste
-        tab_paste = tk.Frame(input_nb, bg=COLOR_CARD_BG, padx=8, pady=8)
+        tab_paste = tk.Frame(input_nb, bg=DARK_BG_SURFACE, padx=10, pady=10)
         input_nb.add(tab_paste, text="📝 Paste Serials")
 
-        lbl_paste_hint = tk.Label(tab_paste, text="Paste one serial or IMEI per line:", font=("Segoe UI", 8), bg=COLOR_CARD_BG, fg=COLOR_TEXT_MUTED)
+        lbl_paste_hint = tk.Label(tab_paste, text="Paste one serial or IMEI per line:", font=("Segoe UI", 8), bg=DARK_BG_SURFACE, fg=DARK_TEXT_MUTED)
         lbl_paste_hint.pack(anchor=tk.W, pady=(0, 4))
 
-        self.txt_paste = ScrolledText(tab_paste, height=6, font=("Consolas", 9), relief=tk.SOLID, bd=1)
+        self.txt_paste = ScrolledText(
+            tab_paste,
+            height=6,
+            font=("Consolas", 9),
+            bg=DARK_INPUT_BG,
+            fg=DARK_INPUT_FG,
+            insertbackground="#FFFFFF",
+            relief=tk.SOLID,
+            bd=1,
+            highlightbackground=DARK_BORDER,
+        )
         self.txt_paste.pack(fill=tk.BOTH, expand=True)
         self.txt_paste.bind("<KeyRelease>", self._on_paste_text_changed)
 
@@ -327,90 +443,171 @@ class OppoCheckerGUI:
         self.lbl_serials_summary = tk.Label(
             scrollable_frame,
             text="0 serials loaded and ready",
-            font=("Segoe UI", 9, "italic"),
-            bg=COLOR_CARD_BG,
-            fg=COLOR_PRIMARY,
+            font=("Segoe UI", 9, "bold"),
+            bg=DARK_BG_SURFACE,
+            fg=DARK_ACCENT_BLUE,
         )
-        self.lbl_serials_summary.pack(anchor=tk.W, padx=pad_x, pady=(4, 8))
+        self.lbl_serials_summary.pack(anchor=tk.W, padx=pad_x, pady=(6, 8))
 
-        # --- Section 2: Settings & Preferences ---
-        lbl_sec2 = tk.Label(scrollable_frame, text="2. Check Settings", font=("Segoe UI", 10, "bold"), bg=COLOR_CARD_BG, fg=COLOR_TEXT_MAIN)
+        # ======================================================================
+        # SECTION 2: Browser & Check Settings (SHOW CHROME PROMINENTLY)
+        # ======================================================================
+        lbl_sec2 = tk.Label(scrollable_frame, text="2. Browser & Verification Settings", font=("Segoe UI", 10, "bold"), bg=DARK_BG_SURFACE, fg=DARK_TEXT_PRIMARY)
         lbl_sec2.pack(anchor=tk.W, padx=pad_x, pady=(8, 4))
 
-        settings_box = tk.Frame(scrollable_frame, bg=COLOR_CARD_BG, bd=1, relief=tk.SOLID)
+        settings_box = tk.Frame(scrollable_frame, bg=DARK_BG_SURFACE_ALT, bd=0, highlightthickness=1, highlightbackground=DARK_BORDER)
         settings_box.pack(fill=tk.X, padx=pad_x, pady=2)
 
-        # Headful checkbox
+        # --- FEATURE: SHOW CHROME PROMINENT TOGGLE ---
+        chrome_highlight_box = tk.Frame(settings_box, bg="#132D48", bd=0, highlightthickness=1, highlightbackground="#1F4B78")
+        chrome_highlight_box.pack(fill=tk.X, padx=8, pady=(8, 6))
+
         chk_headful = tk.Checkbutton(
-            settings_box,
-            text="Show Browser Window (Visible mode)",
+            chrome_highlight_box,
+            text="👁️  Show Chrome Browser (Watch Live)",
             variable=self.var_headful,
-            bg=COLOR_CARD_BG,
-            activebackground=COLOR_CARD_BG,
-            font=("Segoe UI", 9),
+            bg="#132D48",
+            fg="#79C0FF",
+            activebackground="#132D48",
+            activeforeground="#79C0FF",
+            selectcolor=DARK_BG_MAIN,
+            font=("Segoe UI", 9, "bold"),
+            cursor="hand2",
         )
         chk_headful.pack(anchor=tk.W, padx=8, pady=(6, 2))
+
+        lbl_headful_desc = tk.Label(
+            chrome_highlight_box,
+            text="Keeps Chrome visible on screen so you can observe the portal and CAPTCHA solving live.",
+            font=("Segoe UI", 8),
+            bg="#132D48",
+            fg="#A5D6FF",
+            wraplength=310,
+            justify=tk.LEFT,
+        )
+        lbl_headful_desc.pack(anchor=tk.W, padx=8, pady=(0, 6))
 
         # Skip verified checkbox
         chk_skip = tk.Checkbutton(
             settings_box,
             text="Skip already verified records in Excel",
             variable=self.var_skip_verified,
-            bg=COLOR_CARD_BG,
-            activebackground=COLOR_CARD_BG,
+            bg=DARK_BG_SURFACE_ALT,
+            fg=DARK_TEXT_PRIMARY,
+            activebackground=DARK_BG_SURFACE_ALT,
+            activeforeground=DARK_TEXT_PRIMARY,
+            selectcolor=DARK_BG_MAIN,
             font=("Segoe UI", 9),
+            cursor="hand2",
         )
-        chk_skip.pack(anchor=tk.W, padx=8, pady=2)
+        chk_skip.pack(anchor=tk.W, padx=8, pady=3)
 
         # Delay slider / spinbox
-        delay_row = tk.Frame(settings_box, bg=COLOR_CARD_BG)
+        delay_row = tk.Frame(settings_box, bg=DARK_BG_SURFACE_ALT)
         delay_row.pack(fill=tk.X, padx=8, pady=4)
-        tk.Label(delay_row, text="Delay between devices (s):", font=("Segoe UI", 9), bg=COLOR_CARD_BG).pack(side=tk.LEFT)
-        spn_delay = tk.Spinbox(delay_row, from_=0.5, to=15.0, increment=0.5, textvariable=self.var_delay, width=5, font=("Segoe UI", 9))
+        tk.Label(delay_row, text="Delay between devices (s):", font=("Segoe UI", 9), bg=DARK_BG_SURFACE_ALT, fg=DARK_TEXT_PRIMARY).pack(side=tk.LEFT)
+        spn_delay = tk.Spinbox(
+            delay_row,
+            from_=0.5,
+            to=15.0,
+            increment=0.5,
+            textvariable=self.var_delay,
+            width=5,
+            font=("Segoe UI", 9),
+            bg=DARK_INPUT_BG,
+            fg=DARK_INPUT_FG,
+            buttonbackground=DARK_BG_SURFACE,
+            relief=tk.FLAT,
+        )
         spn_delay.pack(side=tk.RIGHT)
 
         # Batch limit
-        limit_row = tk.Frame(settings_box, bg=COLOR_CARD_BG)
+        limit_row = tk.Frame(settings_box, bg=DARK_BG_SURFACE_ALT)
         limit_row.pack(fill=tk.X, padx=8, pady=4)
-        tk.Label(limit_row, text="Limit checks (Optional):", font=("Segoe UI", 9), bg=COLOR_CARD_BG).pack(side=tk.LEFT)
-        ent_limit = tk.Entry(limit_row, textvariable=self.var_limit, width=6, font=("Segoe UI", 9))
+        tk.Label(limit_row, text="Limit checks (e.g. 5, blank=all):", font=("Segoe UI", 9), bg=DARK_BG_SURFACE_ALT, fg=DARK_TEXT_PRIMARY).pack(side=tk.LEFT)
+        ent_limit = tk.Entry(
+            limit_row,
+            textvariable=self.var_limit,
+            width=6,
+            font=("Segoe UI", 9),
+            bg=DARK_INPUT_BG,
+            fg=DARK_INPUT_FG,
+            insertbackground="#FFFFFF",
+            relief=tk.FLAT,
+        )
         ent_limit.pack(side=tk.RIGHT)
 
         # Fine-tune offset
-        offset_row = tk.Frame(settings_box, bg=COLOR_CARD_BG)
+        offset_row = tk.Frame(settings_box, bg=DARK_BG_SURFACE_ALT)
         offset_row.pack(fill=tk.X, padx=8, pady=(4, 8))
-        tk.Label(offset_row, text="Slider Offset nudge (px):", font=("Segoe UI", 9), bg=COLOR_CARD_BG).pack(side=tk.LEFT)
-        spn_offset = tk.Spinbox(offset_row, from_=-15.0, to=15.0, increment=0.5, textvariable=self.var_offset, width=5, font=("Segoe UI", 9))
+        tk.Label(offset_row, text="Slider Offset nudge (px):", font=("Segoe UI", 9), bg=DARK_BG_SURFACE_ALT, fg=DARK_TEXT_PRIMARY).pack(side=tk.LEFT)
+        spn_offset = tk.Spinbox(
+            offset_row,
+            from_=-15.0,
+            to=15.0,
+            increment=0.5,
+            textvariable=self.var_offset,
+            width=5,
+            font=("Segoe UI", 9),
+            bg=DARK_INPUT_BG,
+            fg=DARK_INPUT_FG,
+            buttonbackground=DARK_BG_SURFACE,
+            relief=tk.FLAT,
+        )
         spn_offset.pack(side=tk.RIGHT)
 
-        # --- Section 3: Output File ---
-        lbl_sec3 = tk.Label(scrollable_frame, text="3. Excel Output Report", font=("Segoe UI", 10, "bold"), bg=COLOR_CARD_BG, fg=COLOR_TEXT_MAIN)
+        # ======================================================================
+        # SECTION 3: Output File
+        # ======================================================================
+        lbl_sec3 = tk.Label(scrollable_frame, text="3. Target Excel Report File", font=("Segoe UI", 10, "bold"), bg=DARK_BG_SURFACE, fg=DARK_TEXT_PRIMARY)
         lbl_sec3.pack(anchor=tk.W, padx=pad_x, pady=(10, 4))
 
-        out_box = tk.Frame(scrollable_frame, bg=COLOR_CARD_BG)
+        out_box = tk.Frame(scrollable_frame, bg=DARK_BG_SURFACE)
         out_box.pack(fill=tk.X, padx=pad_x, pady=2)
 
-        ent_output = tk.Entry(out_box, textvariable=self.var_output_path, font=("Segoe UI", 9))
+        ent_output = tk.Entry(
+            out_box,
+            textvariable=self.var_output_path,
+            font=("Segoe UI", 9),
+            bg=DARK_INPUT_BG,
+            fg=DARK_INPUT_FG,
+            insertbackground="#FFFFFF",
+            relief=tk.SOLID,
+            bd=1,
+            highlightbackground=DARK_BORDER,
+        )
         ent_output.pack(side=tk.LEFT, fill=tk.X, expand=True)
 
-        btn_browse_out = tk.Button(out_box, text="Browse", font=("Segoe UI", 8), command=self.browse_output_file, bg="#EAEAEA", relief=tk.FLAT)
-        btn_browse_out.pack(side=tk.LEFT, padx=(4, 0))
+        btn_browse_out = tk.Button(
+            out_box,
+            text="Browse",
+            font=("Segoe UI", 8),
+            command=self.browse_output_file,
+            bg=DARK_BTN_NEUTRAL,
+            fg=DARK_TEXT_PRIMARY,
+            relief=tk.FLAT,
+            padx=8,
+            cursor="hand2",
+        )
+        btn_browse_out.pack(side=tk.LEFT, padx=(6, 0))
 
-        # --- Section 4: Action Controls ---
-        lbl_sec4 = tk.Label(scrollable_frame, text="4. Actions", font=("Segoe UI", 10, "bold"), bg=COLOR_CARD_BG, fg=COLOR_TEXT_MAIN)
+        # ======================================================================
+        # SECTION 4: Action Controls
+        # ======================================================================
+        lbl_sec4 = tk.Label(scrollable_frame, text="4. Execution Controls", font=("Segoe UI", 10, "bold"), bg=DARK_BG_SURFACE, fg=DARK_TEXT_PRIMARY)
         lbl_sec4.pack(anchor=tk.W, padx=pad_x, pady=(12, 4))
 
         # Big Start Button
         self.btn_start = tk.Button(
             scrollable_frame,
-            text="▶  START VERIFICATION",
+            text="▶   START VERIFICATION",
             font=("Segoe UI", 11, "bold"),
-            bg=COLOR_SUCCESS,
+            bg=DARK_BTN_GREEN,
             fg="#FFFFFF",
-            activebackground=COLOR_SUCCESS_HOVER,
+            activebackground=DARK_BTN_GREEN_HOVER,
             activeforeground="#FFFFFF",
             relief=tk.FLAT,
-            pady=8,
+            pady=9,
             cursor="hand2",
             command=self.start_verification,
         )
@@ -419,11 +616,11 @@ class OppoCheckerGUI:
         # Stop Button
         self.btn_stop = tk.Button(
             scrollable_frame,
-            text="⏹  STOP / CANCEL",
+            text="⏹   STOP / CANCEL",
             font=("Segoe UI", 10, "bold"),
-            bg=COLOR_DANGER,
+            bg=DARK_BTN_RED,
             fg="#FFFFFF",
-            activebackground=COLOR_DANGER_HOVER,
+            activebackground=DARK_BTN_RED_HOVER,
             activeforeground="#FFFFFF",
             relief=tk.FLAT,
             pady=6,
@@ -434,15 +631,17 @@ class OppoCheckerGUI:
         self.btn_stop.pack(fill=tk.X, padx=pad_x, pady=4)
 
         # Quick tools row
-        tools_row = tk.Frame(scrollable_frame, bg=COLOR_CARD_BG)
-        tools_row.pack(fill=tk.X, padx=pad_x, pady=(6, 14))
+        tools_row = tk.Frame(scrollable_frame, bg=DARK_BG_SURFACE)
+        tools_row.pack(fill=tk.X, padx=pad_x, pady=(6, 16))
 
         btn_clear_table = tk.Button(
             tools_row,
             text="🧹 Clear Table",
             font=("Segoe UI", 8),
-            bg="#F0F0F0",
+            bg=DARK_BTN_NEUTRAL,
+            fg=DARK_TEXT_PRIMARY,
             relief=tk.FLAT,
+            cursor="hand2",
             command=self.clear_table,
         )
         btn_clear_table.pack(side=tk.LEFT, expand=True, fill=tk.X, padx=2)
@@ -451,8 +650,10 @@ class OppoCheckerGUI:
             tools_row,
             text="🔄 Sync Stats",
             font=("Segoe UI", 8),
-            bg="#F0F0F0",
+            bg=DARK_BTN_NEUTRAL,
+            fg=DARK_TEXT_PRIMARY,
             relief=tk.FLAT,
+            cursor="hand2",
             command=self.sync_stats_from_excel,
         )
         btn_refresh_counts.pack(side=tk.LEFT, expand=True, fill=tk.X, padx=2)
@@ -462,15 +663,15 @@ class OppoCheckerGUI:
 
     def _build_right_panel(self, parent: tk.Widget) -> None:
         # Progress bar & current status at top
-        progress_box = tk.Frame(parent, bg=COLOR_CARD_BG, padx=12, pady=10)
+        progress_box = tk.Frame(parent, bg=DARK_BG_SURFACE, padx=14, pady=10)
         progress_box.pack(side=tk.TOP, fill=tk.X)
 
         self.lbl_progress_status = tk.Label(
             progress_box,
-            text="Ready. Select serials and click 'Start Verification'.",
+            text="Ready. Select serials and click 'START VERIFICATION'.",
             font=("Segoe UI", 9, "bold"),
-            bg=COLOR_CARD_BG,
-            fg=COLOR_TEXT_MAIN,
+            bg=DARK_BG_SURFACE,
+            fg=DARK_TEXT_PRIMARY,
             anchor=tk.W,
         )
         self.lbl_progress_status.pack(fill=tk.X, pady=(0, 4))
@@ -488,11 +689,12 @@ class OppoCheckerGUI:
         notebook = ttk.Notebook(parent)
         notebook.pack(side=tk.TOP, fill=tk.BOTH, expand=True, padx=8, pady=(4, 8))
 
-        # --- Tab 1: Live Results Table ---
-        tab_results = tk.Frame(notebook, bg=COLOR_CARD_BG)
+        # ======================================================================
+        # Tab 1: Live Results Table
+        # ======================================================================
+        tab_results = tk.Frame(notebook, bg=DARK_BG_SURFACE)
         notebook.add(tab_results, text="📋 Live Results Table")
 
-        # Table Treeview
         columns = (
             "sn",
             "active",
@@ -523,11 +725,12 @@ class OppoCheckerGUI:
         self.tree.column("status", width=95, anchor=tk.CENTER)
         self.tree.column("checked_at", width=115, anchor=tk.CENTER)
 
-        # Row color tags
-        self.tree.tag_configure("tag_yes", background="#E2F0D9")
-        self.tree.tag_configure("tag_no", background="#FFF2CC")
-        self.tree.tag_configure("tag_pending", background="#DDEBF7")
-        self.tree.tag_configure("tag_fail", background="#FCE4D6")
+        # Row color tags (Dark Mode palette)
+        self.tree.tag_configure("tag_yes", background=DARK_TAG_YES_BG, foreground=DARK_TAG_YES_FG)
+        self.tree.tag_configure("tag_no", background=DARK_TAG_NO_BG, foreground=DARK_TAG_NO_FG)
+        self.tree.tag_configure("tag_pending", background=DARK_TAG_PENDING_BG, foreground=DARK_TAG_PENDING_FG)
+        self.tree.tag_configure("tag_fail", background=DARK_TAG_FAIL_BG, foreground=DARK_TAG_FAIL_FG)
+        self.tree.tag_configure("tag_info", background=DARK_BG_SURFACE, foreground=DARK_TEXT_PRIMARY)
 
         tree_y_scroll = ttk.Scrollbar(tab_results, orient="vertical", command=self.tree.yview)
         tree_x_scroll = ttk.Scrollbar(tab_results, orient="horizontal", command=self.tree.xview)
@@ -543,33 +746,43 @@ class OppoCheckerGUI:
         # Double click to view full detail popup
         self.tree.bind("<Double-1>", self._on_tree_row_double_click)
 
-        # --- Tab 2: Activity Log ---
-        tab_logs = tk.Frame(notebook, bg=COLOR_CARD_BG)
+        # ======================================================================
+        # Tab 2: Activity Log
+        # ======================================================================
+        tab_logs = tk.Frame(notebook, bg=DARK_BG_SURFACE)
         notebook.add(tab_logs, text="📜 Activity Log")
 
         self.txt_log = ScrolledText(
             tab_logs,
             wrap=tk.WORD,
             font=("Consolas", 9),
-            bg="#1E1E1E",
-            fg="#D4D4D4",
-            insertbackground="#FFFFFF",
+            bg="#0B0E14",
+            fg="#C9D1D9",
+            insertbackground="#58A6FF",
             relief=tk.FLAT,
         )
         self.txt_log.pack(fill=tk.BOTH, expand=True, padx=4, pady=4)
 
         # Log color styles
-        self.txt_log.tag_configure("info", foreground="#9CDCFE")
-        self.txt_log.tag_configure("success", foreground="#4EC9B0")
-        self.txt_log.tag_configure("warning", foreground="#CE9178")
-        self.txt_log.tag_configure("error", foreground="#F48771")
-        self.txt_log.tag_configure("highlight", foreground="#DCDCAA")
+        self.txt_log.tag_configure("info", foreground="#58A6FF")
+        self.txt_log.tag_configure("success", foreground="#7EE787")
+        self.txt_log.tag_configure("warning", foreground="#F2CC60")
+        self.txt_log.tag_configure("error", foreground="#FFA198")
+        self.txt_log.tag_configure("highlight", foreground="#D2A8FF")
 
         # Bottom log toolbar
-        log_bar = tk.Frame(tab_logs, bg=COLOR_CARD_BG)
+        log_bar = tk.Frame(tab_logs, bg=DARK_BG_SURFACE)
         log_bar.pack(fill=tk.X, padx=4, pady=(0, 4))
 
-        btn_clear_log = tk.Button(log_bar, text="Clear Log", font=("Segoe UI", 8), relief=tk.FLAT, command=lambda: self.txt_log.delete("1.0", tk.END))
+        btn_clear_log = tk.Button(
+            log_bar,
+            text="Clear Log",
+            font=("Segoe UI", 8),
+            bg=DARK_BTN_NEUTRAL,
+            fg=DARK_TEXT_PRIMARY,
+            relief=tk.FLAT,
+            command=lambda: self.txt_log.delete("1.0", tk.END),
+        )
         btn_clear_log.pack(side=tk.RIGHT)
 
     def log(self, message: str, level: str = "info") -> None:
@@ -578,7 +791,7 @@ class OppoCheckerGUI:
 
     def _initial_system_check(self) -> None:
         """Check prerequisites on start and prompt for automatic installation if missing."""
-        self.log("Initializing OPPO Automation Application v2.0...", "info")
+        self.log("Initializing OPPO Automation Application v2.0 (Dark Edition)...", "info")
 
         missing: list[str] = []
         if not HAS_PLAYWRIGHT:
@@ -609,8 +822,12 @@ class OppoCheckerGUI:
 
         def _worker():
             try:
+                req_path = RUN_DIR / "requirements.txt"
+                if not req_path.exists():
+                    req_path = APP_DIR / "requirements.txt"
+
                 # 1. pip install -r requirements.txt
-                cmd1 = [sys.executable, "-m", "pip", "install", "-r", "requirements.txt"]
+                cmd1 = [sys.executable, "-m", "pip", "install", "-r", str(req_path)]
                 proc1 = subprocess.Popen(
                     cmd1,
                     stdout=subprocess.PIPE,
@@ -627,21 +844,7 @@ class OppoCheckerGUI:
                 proc1.wait()
 
                 # 2. playwright install chromium
-                cmd2 = [sys.executable, "-m", "playwright", "install", "chromium"]
-                proc2 = subprocess.Popen(
-                    cmd2,
-                    stdout=subprocess.PIPE,
-                    stderr=subprocess.STDOUT,
-                    text=True,
-                    bufsize=1,
-                    creationflags=subprocess.CREATE_NO_WINDOW if sys.platform == "win32" else 0,
-                )
-                if proc2.stdout:
-                    for line in proc2.stdout:
-                        l = line.strip()
-                        if l:
-                            self.msg_queue.put(("LOG", ("info", f"[Browser] {l}")))
-                proc2.wait()
+                self._run_playwright_install()
 
                 self.msg_queue.put(("LOG", ("success", "All dependencies installed successfully!")))
                 self.msg_queue.put(("POPUP_INFO", ("Installation Complete", "All dependencies and Playwright Chromium have been installed successfully!\nPlease restart the app to apply changes.")))
@@ -649,6 +852,35 @@ class OppoCheckerGUI:
                 self.msg_queue.put(("LOG", ("error", f"Installation failed: {e}")))
 
         threading.Thread(target=_worker, daemon=True).start()
+
+    def _run_playwright_install(self) -> int:
+        """Run playwright install chromium supporting both regular Python and PyInstaller frozen EXE."""
+        try:
+            # Check if we can use playwright internal driver directly
+            from playwright._impl._driver import compute_driver_executable, get_driver_env
+            node_exe, cli_js = compute_driver_executable()
+            cmd = [str(node_exe), str(cli_js), "install", "chromium"]
+            env = get_driver_env()
+        except Exception:
+            cmd = [sys.executable, "-m", "playwright", "install", "chromium"]
+            env = os.environ.copy()
+
+        proc = subprocess.Popen(
+            cmd,
+            env=env,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.STDOUT,
+            text=True,
+            bufsize=1,
+            creationflags=subprocess.CREATE_NO_WINDOW if sys.platform == "win32" else 0,
+        )
+        if proc.stdout:
+            for line in proc.stdout:
+                clean_line = line.strip()
+                if clean_line:
+                    self.msg_queue.put(("LOG", ("info", f"[Browser Setup] {clean_line}")))
+        proc.wait()
+        return proc.returncode
 
     def browse_serials_file(self) -> None:
         f = filedialog.askopenfilename(
@@ -671,7 +903,10 @@ class OppoCheckerGUI:
             self.log(f"Failed to read file {f}: {e}", "error")
 
     def load_serials_from_default(self) -> None:
-        default_p = Path("serials.txt")
+        default_p = RUN_DIR / "serials.txt"
+        if not default_p.exists():
+            default_p = APP_DIR / "serials.txt"
+
         if default_p.exists():
             try:
                 serials = read_identifiers(default_p)
@@ -773,40 +1008,20 @@ class OppoCheckerGUI:
             self.log("Starting Chromium browser setup in the background...", "info")
 
             def _install_worker():
-                try:
-                    cmd = [sys.executable, "-m", "playwright", "install", "chromium"]
-                    proc = subprocess.Popen(
-                        cmd,
-                        stdout=subprocess.PIPE,
-                        stderr=subprocess.STDOUT,
-                        text=True,
-                        bufsize=1,
-                        creationflags=subprocess.CREATE_NO_WINDOW if sys.platform == "win32" else 0,
-                    )
-                    if proc.stdout:
-                        for line in proc.stdout:
-                            clean_line = line.strip()
-                            if clean_line:
-                                self.msg_queue.put(("LOG", ("info", f"[Setup] {clean_line}")))
-                    proc.wait()
-                    if proc.returncode == 0:
-                        self.msg_queue.put(("LOG", ("success", "Chromium browser setup completed successfully!")))
-                        self.msg_queue.put(("POPUP_INFO", ("Setup Complete", "Chromium browser installed and ready!")))
-                    else:
-                        self.msg_queue.put(("LOG", ("error", f"Browser setup exited with error code {proc.returncode}")))
-                except Exception as e:
-                    self.msg_queue.put(("LOG", ("error", f"Browser setup failed: {e}")))
+                code = self._run_playwright_install()
+                if code == 0:
+                    self.msg_queue.put(("LOG", ("success", "Chromium browser setup completed successfully!")))
+                    self.msg_queue.put(("POPUP_INFO", ("Setup Complete", "Chromium browser installed and ready!")))
+                else:
+                    self.msg_queue.put(("LOG", ("error", f"Browser setup exited with error code {code}")))
 
-            t = threading.Thread(target=_install_worker, daemon=True)
-            t.start()
+            threading.Thread(target=_install_worker, daemon=True).start()
 
     def start_verification(self) -> None:
         """Initiate background verification thread."""
         if self.is_running:
             return
 
-        # Prepare serials
-        # If user typed into the text paste box, prefer it if not empty
         paste_text = self.txt_paste.get("1.0", tk.END).strip()
         if paste_text:
             serials = [line.strip() for line in paste_text.splitlines() if line.strip() and not line.strip().startswith("#")]
@@ -817,21 +1032,18 @@ class OppoCheckerGUI:
             messagebox.showwarning("No Serials", "Please choose a file or paste serial numbers before starting.")
             return
 
-        # Limit if specified
         limit_val = self.var_limit.get().strip()
         if limit_val.isdigit():
             lim = int(limit_val)
             serials = serials[:lim]
 
-        # Reset states
         self.stop_requested.clear()
         self.is_running = True
-        self.btn_start.config(state=tk.DISABLED, bg="#999999")
+        self.btn_start.config(state=tk.DISABLED, bg="#484F58")
         self.btn_stop.config(state=tk.NORMAL)
         self.progress_bar.config(value=0)
         self.stat_processed.set(0)
 
-        # Launch worker
         params = {
             "serials": serials,
             "headful": self.var_headful.get(),
@@ -862,7 +1074,7 @@ class OppoCheckerGUI:
         offset: float = params["offset"]
         output_path: Path = params["output_path"]
 
-        self.msg_queue.put(("LOG", ("info", f"Started check batch. Total target serials: {len(serials)}")))
+        self.msg_queue.put(("LOG", ("info", f"Started check batch. Target serials: {len(serials)} | Browser: {'VISIBLE (Watch Live)' if headful else 'Background Headless'}")))
 
         # Check skip verified
         if skip_verified and output_path.exists() and HAS_OPENPYXL:
@@ -880,7 +1092,7 @@ class OppoCheckerGUI:
                 serials = [s for s in serials if s not in found_sns]
                 skipped_count = original_len - len(serials)
                 if skipped_count > 0:
-                    self.msg_queue.put(("LOG", ("info", f"Skipped {skipped_count} serials already marked as 'Found' in Excel.")))
+                    self.msg_queue.put(("LOG", ("info", f"Skipping {skipped_count} serials already marked as 'Found' in Excel.")))
             except Exception as e:
                 self.msg_queue.put(("LOG", ("warning", f"Could not check existing records: {e}")))
 
@@ -890,16 +1102,17 @@ class OppoCheckerGUI:
             self.msg_queue.put(("FINISHED", {"total": 0, "processed": 0}))
             return
 
-        self.msg_queue.put(("LOG", ("info", f"Processing {total} device(s) (Browser mode: {'Visible' if headful else 'Headless'})...")))
-
         results_accum: list[dict[str, Any]] = []
 
         try:
             with sync_playwright() as p:
-                browser = p.chromium.launch(headless=not headful)
+                browser = p.chromium.launch(
+                    headless=not headful,
+                    args=["--start-maximized"] if headful else [],
+                )
                 context = browser.new_context(
                     user_agent="Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/122.0.0.0 Safari/537.36",
-                    viewport={"width": 1280, "height": 800},
+                    viewport={"width": 1280, "height": 820},
                 )
                 page = context.new_page()
 
@@ -1013,7 +1226,6 @@ class OppoCheckerGUI:
 
                 self.stat_processed.set(self.stat_processed.get() + 1)
 
-                # Add to tree
                 self.tree.insert(
                     "",
                     0,
@@ -1023,7 +1235,7 @@ class OppoCheckerGUI:
 
             elif msg_type == "FINISHED":
                 self.is_running = False
-                self.btn_start.config(state=tk.NORMAL, bg=COLOR_SUCCESS)
+                self.btn_start.config(state=tk.NORMAL, bg=DARK_BTN_GREEN)
                 self.btn_stop.config(state=tk.DISABLED)
                 self.lbl_progress_status.config(text="Verification completed successfully! Click 'Open Excel' to view report.")
                 self.progress_bar.config(value=100)
@@ -1038,11 +1250,10 @@ class OppoCheckerGUI:
                 title, msg = payload
                 messagebox.showerror(title, msg)
 
-        # Reschedule next poll
         self.root.after(80, self._poll_queue)
 
     def _on_tree_row_double_click(self, event: Any) -> None:
-        """Display detail dialog when user double clicks a table record."""
+        """Display dark detail dialog when user double clicks a table record."""
         selected = self.tree.selection()
         if not selected:
             return
@@ -1052,12 +1263,12 @@ class OppoCheckerGUI:
 
         detail_win = tk.Toplevel(self.root)
         detail_win.title(f"Device Details - {values[0]}")
-        detail_win.geometry("520x420")
-        detail_win.minsize(450, 350)
-        detail_win.configure(bg=COLOR_CARD_BG)
+        detail_win.geometry("540x440")
+        detail_win.minsize(460, 360)
+        detail_win.configure(bg=DARK_BG_SURFACE)
 
-        lbl_head = tk.Label(detail_win, text=f"OPPO Device Record: {values[0]}", font=("Segoe UI", 11, "bold"), bg=COLOR_CARD_BG, fg=COLOR_PRIMARY)
-        lbl_head.pack(anchor=tk.W, padx=16, pady=(14, 8))
+        lbl_head = tk.Label(detail_win, text=f"OPPO Device Record: {values[0]}", font=("Segoe UI", 11, "bold"), bg=DARK_BG_SURFACE, fg=DARK_ACCENT_BLUE)
+        lbl_head.pack(anchor=tk.W, padx=18, pady=(16, 8))
 
         fields = [
             ("Serial / IMEI:", values[0]),
@@ -1070,20 +1281,31 @@ class OppoCheckerGUI:
             ("Checked Timestamp:", values[7]),
         ]
 
-        f_frame = tk.Frame(detail_win, bg=COLOR_CARD_BG)
-        f_frame.pack(fill=tk.BOTH, expand=True, padx=16, pady=4)
+        f_frame = tk.Frame(detail_win, bg=DARK_BG_SURFACE)
+        f_frame.pack(fill=tk.BOTH, expand=True, padx=18, pady=4)
 
-        for idx, (lbl_txt, val_txt) in enumerate(fields):
-            row_f = tk.Frame(f_frame, bg=COLOR_CARD_BG)
+        for lbl_txt, val_txt in fields:
+            row_f = tk.Frame(f_frame, bg=DARK_BG_SURFACE)
             row_f.pack(fill=tk.X, pady=4)
 
-            tk.Label(row_f, text=lbl_txt, width=18, anchor=tk.W, font=("Segoe UI", 9, "bold"), bg=COLOR_CARD_BG, fg=COLOR_TEXT_MAIN).pack(side=tk.LEFT)
+            tk.Label(row_f, text=lbl_txt, width=18, anchor=tk.W, font=("Segoe UI", 9, "bold"), bg=DARK_BG_SURFACE, fg=DARK_TEXT_PRIMARY).pack(side=tk.LEFT)
 
-            val_lbl = tk.Label(row_f, text=str(val_txt), anchor=tk.W, justify=tk.LEFT, wraplength=320, font=("Segoe UI", 9), bg=COLOR_CARD_BG, fg=COLOR_TEXT_MUTED)
+            val_lbl = tk.Label(row_f, text=str(val_txt), anchor=tk.W, justify=tk.LEFT, wraplength=330, font=("Segoe UI", 9), bg=DARK_BG_SURFACE, fg=DARK_TEXT_MUTED)
             val_lbl.pack(side=tk.LEFT, fill=tk.X, expand=True)
 
-        btn_close = tk.Button(detail_win, text="Close", font=("Segoe UI", 9), relief=tk.FLAT, bg="#EAEAEA", command=detail_win.destroy, padx=12, pady=4)
-        btn_close.pack(side=tk.BOTTOM, pady=12)
+        btn_close = tk.Button(
+            detail_win,
+            text="Close",
+            font=("Segoe UI", 9),
+            relief=tk.FLAT,
+            bg=DARK_BTN_NEUTRAL,
+            fg=DARK_TEXT_PRIMARY,
+            command=detail_win.destroy,
+            padx=14,
+            pady=5,
+            cursor="hand2",
+        )
+        btn_close.pack(side=tk.BOTTOM, pady=14)
 
 
 def main() -> None:

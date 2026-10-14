@@ -31,3 +31,9 @@ test_*.py
 
 # Local dumps
 page.html
+
+# PyInstaller build artifacts
+build/
+dist/
+*.spec
+*.exe
