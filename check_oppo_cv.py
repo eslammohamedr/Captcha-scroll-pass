@@ -16,10 +16,16 @@ import datetime
 import math
 import random
 import sys
+import os
 import time
 from io import BytesIO
 from pathlib import Path
 from typing import Any
+
+# Ensure Playwright finds shared system browsers (crucial for PyInstaller EXE)
+if "PLAYWRIGHT_BROWSERS_PATH" not in os.environ or not os.environ["PLAYWRIGHT_BROWSERS_PATH"]:
+    _local_appdata = os.environ.get("LOCALAPPDATA") or str(Path.home() / "AppData" / "Local")
+    os.environ["PLAYWRIGHT_BROWSERS_PATH"] = str(Path(_local_appdata) / "ms-playwright")
 
 from playwright.sync_api import sync_playwright
 
@@ -680,7 +686,13 @@ def main() -> int:
     results: list[dict[str, Any]] = []
 
     with sync_playwright() as p:
-        browser = p.chromium.launch(headless=not args.headful)
+        try:
+            browser = p.chromium.launch(headless=not args.headful)
+        except Exception:
+            try:
+                browser = p.chromium.launch(channel="msedge", headless=not args.headful)
+            except Exception:
+                browser = p.chromium.launch(channel="chrome", headless=not args.headful)
         context = browser.new_context(
             user_agent="Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/122.0.0.0 Safari/537.36",
             viewport={"width": 1280, "height": 800},

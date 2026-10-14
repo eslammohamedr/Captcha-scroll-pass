@@ -36,6 +36,11 @@ if sys.platform == "win32":
         except Exception:
             pass
 
+# Ensure Playwright finds shared system browsers (CRUCIAL for PyInstaller frozen EXE)
+if "PLAYWRIGHT_BROWSERS_PATH" not in os.environ or not os.environ["PLAYWRIGHT_BROWSERS_PATH"]:
+    _local_appdata = os.environ.get("LOCALAPPDATA") or str(Path.home() / "AppData" / "Local")
+    os.environ["PLAYWRIGHT_BROWSERS_PATH"] = str(Path(_local_appdata) / "ms-playwright")
+
 import tkinter as tk
 from tkinter import filedialog, messagebox, ttk
 from tkinter.scrolledtext import ScrolledText
@@ -1106,10 +1111,22 @@ class OppoCheckerGUI:
 
         try:
             with sync_playwright() as p:
-                browser = p.chromium.launch(
-                    headless=not headful,
-                    args=["--start-maximized"] if headful else [],
-                )
+                launch_args = ["--start-maximized"] if headful else []
+                browser = None
+                try:
+                    browser = p.chromium.launch(headless=not headful, args=launch_args)
+                except Exception as e_chromium:
+                    self.msg_queue.put(("LOG", ("warning", f"Bundled Chromium notice: {e_chromium}. Trying Microsoft Edge engine...")))
+                    try:
+                        browser = p.chromium.launch(channel="msedge", headless=not headful, args=launch_args)
+                        self.msg_queue.put(("LOG", ("info", "Connected successfully using Microsoft Edge Chromium engine.")))
+                    except Exception:
+                        try:
+                            browser = p.chromium.launch(channel="chrome", headless=not headful, args=launch_args)
+                            self.msg_queue.put(("LOG", ("info", "Connected successfully using Google Chrome engine.")))
+                        except Exception:
+                            raise e_chromium
+
                 context = browser.new_context(
                     user_agent="Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/122.0.0.0 Safari/537.36",
                     viewport={"width": 1280, "height": 820},
