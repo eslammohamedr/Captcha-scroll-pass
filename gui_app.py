@@ -577,20 +577,78 @@ class OppoCheckerGUI:
         self.msg_queue.put(("LOG", (level, message)))
 
     def _initial_system_check(self) -> None:
-        """Check prerequisites on start and notify user."""
+        """Check prerequisites on start and prompt for automatic installation if missing."""
         self.log("Initializing OPPO Automation Application v2.0...", "info")
-        if not HAS_CHECKER:
-            self.log(f"[Error] Failed to load automation modules: {CHECKER_IMPORT_ERROR}", "error")
-            messagebox.showerror("Module Error", f"Could not load check_oppo_cv.py:\n{CHECKER_IMPORT_ERROR}")
-            return
 
+        missing: list[str] = []
         if not HAS_PLAYWRIGHT:
-            self.log("[Warning] Playwright library not detected in current Python environment.", "warning")
+            missing.append("playwright")
+        if not HAS_OPENPYXL:
+            missing.append("openpyxl")
+        if not HAS_CHECKER:
+            missing.append("opencv-python / check_oppo_cv")
+
+        if missing:
+            self.log(f"[Notice] Missing libraries detected: {', '.join(missing)}", "warning")
+            if messagebox.askyesno(
+                "Install Required Dependencies",
+                f"The following required Python libraries are missing:\n\n"
+                f"• {chr(10).join(missing)}\n\n"
+                "Would you like to install them and download the browser automatically now?",
+            ):
+                self.install_all_dependencies()
         else:
-            self.log("[Ready] Playwright and OpenCV slider engine loaded successfully.", "success")
+            self.log("[Ready] All required Python libraries and OpenCV engine loaded successfully.", "success")
 
         # Initial stats check from existing excel if available
         self.sync_stats_from_excel()
+
+    def install_all_dependencies(self) -> None:
+        """Run pip install -r requirements.txt and playwright install in background."""
+        self.log("Starting automatic installation of requirements...", "info")
+
+        def _worker():
+            try:
+                # 1. pip install -r requirements.txt
+                cmd1 = [sys.executable, "-m", "pip", "install", "-r", "requirements.txt"]
+                proc1 = subprocess.Popen(
+                    cmd1,
+                    stdout=subprocess.PIPE,
+                    stderr=subprocess.STDOUT,
+                    text=True,
+                    bufsize=1,
+                    creationflags=subprocess.CREATE_NO_WINDOW if sys.platform == "win32" else 0,
+                )
+                if proc1.stdout:
+                    for line in proc1.stdout:
+                        l = line.strip()
+                        if l:
+                            self.msg_queue.put(("LOG", ("info", f"[Pip] {l}")))
+                proc1.wait()
+
+                # 2. playwright install chromium
+                cmd2 = [sys.executable, "-m", "playwright", "install", "chromium"]
+                proc2 = subprocess.Popen(
+                    cmd2,
+                    stdout=subprocess.PIPE,
+                    stderr=subprocess.STDOUT,
+                    text=True,
+                    bufsize=1,
+                    creationflags=subprocess.CREATE_NO_WINDOW if sys.platform == "win32" else 0,
+                )
+                if proc2.stdout:
+                    for line in proc2.stdout:
+                        l = line.strip()
+                        if l:
+                            self.msg_queue.put(("LOG", ("info", f"[Browser] {l}")))
+                proc2.wait()
+
+                self.msg_queue.put(("LOG", ("success", "All dependencies installed successfully!")))
+                self.msg_queue.put(("POPUP_INFO", ("Installation Complete", "All dependencies and Playwright Chromium have been installed successfully!\nPlease restart the app to apply changes.")))
+            except Exception as e:
+                self.msg_queue.put(("LOG", ("error", f"Installation failed: {e}")))
+
+        threading.Thread(target=_worker, daemon=True).start()
 
     def browse_serials_file(self) -> None:
         f = filedialog.askopenfilename(
