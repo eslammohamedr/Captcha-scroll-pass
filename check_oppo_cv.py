@@ -91,6 +91,45 @@ def read_identifiers(file_path: Path) -> list[str]:
     return identifiers
 
 
+def format_oppo_date(raw_val: Any) -> str:
+    """Format timestamp into readable date matching OPPO portal, e.g. '25-09-2026 (UTC+3)'."""
+    if not raw_val:
+        return ""
+    if isinstance(raw_val, (datetime.datetime, datetime.date)):
+        return raw_val.strftime("%d-%m-%Y (UTC+3)")
+    s = str(raw_val).strip()
+    if not s or s in ["Not Activated", "Pending Sync", "Unknown", "Not Found"]:
+        return s
+    # Already formatted like DD-MM-YYYY (UTC+3)
+    if "(UTC" in s:
+        return s
+
+    # Check if numeric epoch timestamp in ms (13 digits) or seconds (10 digits)
+    try:
+        val_float = float(s)
+        if val_float > 1_000_000_000:
+            if val_float > 10_000_000_000:  # millisecond epoch
+                val_float = val_float / 1000.0
+            tz = datetime.timezone(datetime.timedelta(hours=3))
+            dt = datetime.datetime.fromtimestamp(val_float, tz)
+            return dt.strftime("%d-%m-%Y (UTC+3)")
+    except Exception:
+        pass
+
+    # If string date formatted as YYYY-MM-DD or DD-MM-YYYY
+    if "-" in s and len(s) >= 10:
+        try:
+            date_part = s.split(" ")[0].strip()
+            parts = date_part.split("-")
+            if len(parts) == 3 and len(parts[0]) == 4:  # YYYY-MM-DD -> DD-MM-YYYY (UTC+3)
+                return f"{parts[2]}-{parts[1]}-{parts[0]} (UTC+3)"
+            if len(parts) == 3 and len(parts[0]) == 2 and len(parts[2]) == 4:  # DD-MM-YYYY -> DD-MM-YYYY (UTC+3)
+                return f"{parts[0]}-{parts[1]}-{parts[2]} (UTC+3)"
+        except Exception:
+            pass
+    return s
+
+
 def generate_natural_track(distance: int) -> list[int]:
     """Generate realistic human dragging track with natural velocity curve."""
     steps = random.randint(26, 36)
@@ -382,14 +421,18 @@ def check_oppo_serial(page, serial: str, on_status: Any = None, fine_tune_offset
                     is_active = "No"
                     act_date = "Not Activated"
                     act_comment = "Not Activated"
+                elif dom_val and "передано" not in dom_lower:
+                    is_active = "Yes"
+                    act_date = format_oppo_date(dom_val)
+                    act_comment = act_date
                 elif reg_date:
                     is_active = "Yes"
-                    act_date = str(reg_date)
-                    act_comment = str(reg_date)
+                    act_date = format_oppo_date(reg_date)
+                    act_comment = act_date
                 elif dom_val:
                     is_active = "Yes"
-                    act_date = dom_val
-                    act_comment = dom_val
+                    act_date = format_oppo_date(dom_val)
+                    act_comment = act_date
                 else:
                     is_active = "No"
                     act_date = "Not Activated"
@@ -409,7 +452,7 @@ def check_oppo_serial(page, serial: str, on_status: Any = None, fine_tune_offset
                     "color": str(d.get("productColor") or "").strip(),
                     "certified_model": str(d.get("certifiedModel") or "").strip(),
                     "region": str(d.get("region") or "").strip(),
-                    "warranty_end": str(d.get("warrantyEndTime") or "").strip(),
+                    "warranty_end": format_oppo_date(str(d.get("warrantyEndTime") or "").strip()),
                     "status": "Found",
                     "raw_msg": pmsg,
                 }
@@ -444,8 +487,8 @@ def check_oppo_serial(page, serial: str, on_status: Any = None, fine_tune_offset
                 act_comment = "Not Activated"
             elif dom_val:
                 is_active = "Yes"
-                act_date = dom_val
-                act_comment = dom_val
+                act_date = format_oppo_date(dom_val)
+                act_comment = act_date
             else:
                 is_active = "Yes"
                 act_date = "Activated"
@@ -555,6 +598,14 @@ def save_to_excel(results: list[dict[str, Any]], output_path: Path, quiet: bool 
                         row_dict[header_map[headers[idx]]] = cell_val
                 sn = str(row[0]).strip()
                 if sn:
+                    # Normalize date formats if older rows had raw millisecond epoch timestamps
+                    if row_dict.get("activation_date"):
+                        row_dict["activation_date"] = format_oppo_date(row_dict["activation_date"])
+                    if row_dict.get("activation_comment"):
+                        row_dict["activation_comment"] = format_oppo_date(row_dict["activation_comment"])
+                    if row_dict.get("warranty_end"):
+                        row_dict["warranty_end"] = format_oppo_date(row_dict["warranty_end"])
+
                     # Backfill activation_comment for older rows if missing
                     if not row_dict.get("activation_comment"):
                         act_d = str(row_dict.get("activation_date") or "").strip()

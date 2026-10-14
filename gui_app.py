@@ -60,7 +60,7 @@ except ImportError:
 
 # Import checker logic from check_oppo_cv
 try:
-    from check_oppo_cv import check_oppo_serial, read_identifiers, save_to_excel
+    from check_oppo_cv import check_oppo_serial, format_oppo_date, read_identifiers, save_to_excel
     HAS_CHECKER = True
 except Exception as e:
     HAS_CHECKER = False
@@ -324,12 +324,12 @@ class OppoCheckerGUI:
         )
         btn_setup.pack(side=tk.LEFT, padx=4)
 
-        # Stat cards row (Always shows exact numbers in sheet)
+        # Stat cards row (Always shows total serials from input + verified metrics)
         stats_frame = tk.Frame(self.root, bg=DARK_BG_MAIN)
         stats_frame.pack(side=tk.TOP, fill=tk.X, padx=16, pady=(10, 6))
 
-        self._create_stat_card(stats_frame, "Total in Sheet", self.stat_total, "StatNumber.TLabel", 0)
-        self._create_stat_card(stats_frame, "Processed", self.stat_processed, "StatNumberInfo.TLabel", 1)
+        self._create_stat_card(stats_frame, "Total Serials", self.stat_total, "StatNumber.TLabel", 0)
+        self._create_stat_card(stats_frame, "Total in Sheet", self.stat_processed, "StatNumberInfo.TLabel", 1)
         self._create_stat_card(stats_frame, "Activated (Yes)", self.stat_activated, "StatNumberSuccess.TLabel", 2)
         self._create_stat_card(stats_frame, "Not Activated (No)", self.stat_not_activated, "StatNumberWarning.TLabel", 3)
         self._create_stat_card(stats_frame, "Pending Sync", self.stat_pending, "StatNumberInfo.TLabel", 4)
@@ -919,7 +919,7 @@ class OppoCheckerGUI:
             # Fresh run: reset dashing stats and table
             self.sheet_records.clear()
             self.clear_table()
-            self._update_dashboard_counts(0, 0, 0, 0, 0, 0)
+            self._update_dashboard_counts(in_sheet=0, yes=0, no=0, pending=0, failed=0)
             self.chk_skip.config(state=tk.DISABLED)
             self.var_skip_verified.set(False)
 
@@ -937,10 +937,13 @@ class OppoCheckerGUI:
             self.log(f"Switched to CONTINUE mode. Target output: {default_file.name}", "info")
             self.sync_stats_from_file()
 
-    def _update_dashboard_counts(self, total: int, processed: int, yes: int, no: int, pending: int, failed: int) -> None:
+    def _update_dashboard_counts(self, in_sheet: int, yes: int, no: int, pending: int, failed: int, total_serials: int | None = None) -> None:
         """Centralized dashboard updater to ensure sheet rows == dashboard counts always."""
-        self.stat_total.set(total)
-        self.stat_processed.set(processed)
+        if total_serials is not None:
+            self.stat_total.set(total_serials)
+        else:
+            self.stat_total.set(len(self.loaded_serials))
+        self.stat_processed.set(in_sheet)
         self.stat_activated.set(yes)
         self.stat_not_activated.set(no)
         self.stat_pending.set(pending)
@@ -957,14 +960,14 @@ class OppoCheckerGUI:
             if str(r.get("status") or "").strip() in ["Captcha Failed", "Error", "Not Found"]
             or str(r.get("is_active") or "").strip() in ["Not Found", "Error", "Captcha Failed"]
         )
-        self._update_dashboard_counts(total, total, yes, no, pending, failed)
+        self._update_dashboard_counts(in_sheet=total, yes=yes, no=no, pending=pending, failed=failed)
 
     def sync_stats_from_file(self) -> None:
         """Read existing Excel/CSV output file and sync dashboard + table in-place."""
         p = Path(self.var_output_path.get())
         if not p.exists():
             if self.var_run_mode.get() == "continue":
-                self._update_dashboard_counts(0, 0, 0, 0, 0, 0)
+                self._update_dashboard_counts(in_sheet=0, yes=0, no=0, pending=0, failed=0)
             return
 
         self.sheet_records.clear()
@@ -997,8 +1000,8 @@ class OppoCheckerGUI:
                     rec = {
                         "serial": sn,
                         "is_active": str(row[col_map["is_active"]] or "").strip() if col_map["is_active"] != -1 and len(row) > col_map["is_active"] else "",
-                        "activation_date": str(row[col_map["activation_date"]] or "").strip() if col_map["activation_date"] != -1 and len(row) > col_map["activation_date"] else "",
-                        "activation_comment": str(row[col_map["activation_comment"]] or "").strip() if col_map["activation_comment"] != -1 and len(row) > col_map["activation_comment"] else "",
+                        "activation_date": format_oppo_date(row[col_map["activation_date"]]) if col_map["activation_date"] != -1 and len(row) > col_map["activation_date"] else "",
+                        "activation_comment": format_oppo_date(row[col_map["activation_comment"]]) if col_map["activation_comment"] != -1 and len(row) > col_map["activation_comment"] else "",
                         "model_name": str(row[col_map["model_name"]] or "").strip() if col_map["model_name"] != -1 and len(row) > col_map["model_name"] else "",
                         "color": str(row[col_map["color"]] or "").strip() if col_map["color"] != -1 and len(row) > col_map["color"] else "",
                         "status": str(row[col_map["status"]] or "").strip() if col_map["status"] != -1 and len(row) > col_map["status"] else "",
@@ -1069,8 +1072,8 @@ class OppoCheckerGUI:
         vals = (
             sn,
             act,
-            res.get("activation_date", ""),
-            res.get("activation_comment", ""),
+            format_oppo_date(res.get("activation_date", "")),
+            format_oppo_date(res.get("activation_comment", "")),
             res.get("model_name", ""),
             res.get("color", ""),
             stat,
@@ -1159,6 +1162,7 @@ class OppoCheckerGUI:
             path = Path(f)
             serials = read_identifiers(path)
             self.loaded_serials = serials
+            self.stat_total.set(len(serials))
             self.lbl_selected_file.config(text=f"Current: {path.name} ({len(serials)} serials)")
             self.lbl_serials_summary.config(text=f"{len(serials)} serials loaded from {path.name}")
             self.log(f"Loaded {len(serials)} serial(s) from {path}", "info")
@@ -1175,6 +1179,7 @@ class OppoCheckerGUI:
             try:
                 serials = read_identifiers(default_p)
                 self.loaded_serials = serials
+                self.stat_total.set(len(serials))
                 self.lbl_selected_file.config(text=f"Current: serials.txt ({len(serials)} serials)")
                 self.lbl_serials_summary.config(text=f"{len(serials)} serials loaded from serials.txt")
                 self.log(f"Auto-loaded {len(serials)} serials from serials.txt", "info")
@@ -1187,6 +1192,7 @@ class OppoCheckerGUI:
             return
         lines = [line.strip() for line in content.splitlines() if line.strip() and not line.strip().startswith("#")]
         self.loaded_serials = lines
+        self.stat_total.set(len(lines))
         self.lbl_serials_summary.config(text=f"{len(lines)} serials ready from pasted text")
 
     def browse_output_file(self) -> None:
@@ -1464,8 +1470,7 @@ class OppoCheckerGUI:
                 # Update dashboard counts directly from sheet summary (Number of elements in sheet == dashing always!)
                 if isinstance(summary, dict) and summary:
                     self._update_dashboard_counts(
-                        total=summary.get("total", len(self.sheet_records)),
-                        processed=summary.get("total", len(self.sheet_records)),
+                        in_sheet=summary.get("total", len(self.sheet_records)),
                         yes=summary.get("yes", 0),
                         no=summary.get("no", 0),
                         pending=summary.get("pending", 0),
