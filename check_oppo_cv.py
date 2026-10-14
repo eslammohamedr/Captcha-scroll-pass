@@ -17,6 +17,7 @@ import math
 import random
 import sys
 import os
+import csv
 import time
 from io import BytesIO
 from pathlib import Path
@@ -516,8 +517,8 @@ def check_oppo_serial(page, serial: str, on_status: Any = None, fine_tune_offset
             pass
 
 
-def save_to_excel(results: list[dict[str, Any]], output_path: Path, quiet: bool = False) -> None:
-    """Save or update results in Excel spreadsheet with clean formatting."""
+def save_to_excel(results: list[dict[str, Any]], output_path: Path, quiet: bool = False, fresh: bool = False) -> dict[str, Any]:
+    """Save or update results in Excel spreadsheet and companion CSV with clean formatting."""
     timestamp = datetime.datetime.now().strftime("%Y-%m-%d %H:%M:%S")
 
     existing_rows: dict[str, dict[str, Any]] = {}
@@ -537,7 +538,8 @@ def save_to_excel(results: list[dict[str, Any]], output_path: Path, quiet: bool 
         ("checked_at", "Last Checked"),
     ]
 
-    if output_path.exists() and HAS_OPENPYXL:
+    # Only load existing rows if NOT in fresh mode
+    if not fresh and output_path.exists() and HAS_OPENPYXL:
         try:
             wb_old = openpyxl.load_workbook(output_path)
             ws_old = wb_old.active
@@ -565,6 +567,7 @@ def save_to_excel(results: list[dict[str, Any]], output_path: Path, quiet: bool 
             if not quiet:
                 print(f"[Notice] Could not read existing Excel file: {e}")
 
+    # Merge or update rows by serial number (in-place edit)
     for r in results:
         sn = str(r["serial"]).strip()
         new_status = str(r.get("status") or "")
@@ -576,6 +579,8 @@ def save_to_excel(results: list[dict[str, Any]], output_path: Path, quiet: bool 
 
     final_rows = list(existing_rows.values())
 
+    # 1. Save to Excel (.xlsx)
+    xlsx_path = output_path.with_suffix(".xlsx") if output_path.suffix.lower() == ".csv" else output_path
     if HAS_OPENPYXL:
         wb = openpyxl.Workbook()
         ws = wb.active
@@ -631,14 +636,43 @@ def save_to_excel(results: list[dict[str, Any]], output_path: Path, quiet: bool 
             max_len = max(len(str(ws.cell(row=r, column=col_idx).value or "")) for r in range(1, len(final_rows) + 2))
             ws.column_dimensions[col_letter].width = max(max_len + 4, 13)
 
-        wb.save(output_path)
+        wb.save(xlsx_path)
         if not quiet:
-            print(f"Successfully saved {len(final_rows)} records to Excel: {output_path}")
+            print(f"Successfully saved {len(final_rows)} records to Excel: {xlsx_path}")
     elif HAS_PANDAS:
         df = pd.DataFrame(final_rows)
-        df.to_excel(output_path, index=False)
+        df.to_excel(xlsx_path, index=False)
         if not quiet:
-            print(f"Saved {len(final_rows)} records to Excel: {output_path}")
+            print(f"Saved {len(final_rows)} records to Excel: {xlsx_path}")
+
+    # 2. Save companion CSV (.csv) simultaneously
+    csv_path = output_path.with_suffix(".csv")
+    try:
+        with open(csv_path, "w", newline="", encoding="utf-8-sig") as f_csv:
+            writer = csv.DictWriter(f_csv, fieldnames=[col_title for _, col_title in columns])
+            writer.writeheader()
+            for r_entry in final_rows:
+                writer.writerow({col_title: r_entry.get(col_key, "") for col_key, col_title in columns})
+        if not quiet:
+            print(f"Saved companion CSV: {csv_path}")
+    except Exception as e_csv:
+        if not quiet:
+            print(f"[Notice] Could not save CSV file: {e_csv}")
+
+    # Calculate exact summary matching the sheet 1:1
+    summary = {
+        "total": len(final_rows),
+        "yes": sum(1 for r in final_rows if str(r.get("is_active") or "").strip() == "Yes"),
+        "no": sum(1 for r in final_rows if str(r.get("is_active") or "").strip() == "No"),
+        "pending": sum(1 for r in final_rows if str(r.get("is_active") or "").strip() in ["Pending", "Syncing"]),
+        "failed": sum(
+            1 for r in final_rows
+            if str(r.get("status") or "").strip() in ["Captcha Failed", "Error", "Not Found"]
+            or str(r.get("is_active") or "").strip() in ["Not Found", "Error", "Captcha Failed"]
+        ),
+        "rows": final_rows,
+    }
+    return summary
 
 
 def main() -> int:

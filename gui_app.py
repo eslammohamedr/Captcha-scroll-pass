@@ -105,8 +105,8 @@ class OppoCheckerGUI:
     def __init__(self, root: tk.Tk) -> None:
         self.root = root
         self.root.title("OPPO Device Verification Portal — Closed-Loop CAPTCHA Solver")
-        self.root.geometry("1220x840")
-        self.root.minsize(1020, 700)
+        self.root.geometry("1240x860")
+        self.root.minsize(1040, 720)
 
         # Apply dark background to root
         self.root.configure(bg=DARK_BG_MAIN)
@@ -117,11 +117,14 @@ class OppoCheckerGUI:
         self.stop_requested = threading.Event()
         self.is_running = False
 
+        # Live sheet records cache (Single source of truth matching output file 1:1)
+        self.sheet_records: dict[str, dict[str, Any]] = {}
+
         # Current loaded serials
         self.loaded_serials: list[str] = []
         self.active_output_file: Path = (RUN_DIR / "oppo_results.xlsx").resolve()
 
-        # Stats counters
+        # Stats counters (Always synchronized with self.sheet_records)
         self.stat_total = tk.IntVar(value=0)
         self.stat_processed = tk.IntVar(value=0)
         self.stat_activated = tk.IntVar(value=0)
@@ -129,9 +132,12 @@ class OppoCheckerGUI:
         self.stat_pending = tk.IntVar(value=0)
         self.stat_failed = tk.IntVar(value=0)
 
-        # Settings variables (DEFAULT HEADFUL=TRUE so Chrome is visible by default!)
-        self.var_headful = tk.BooleanVar(value=True)
-        self.var_skip_verified = tk.BooleanVar(value=True)
+        # Run mode: "continue" (Resume/update existing) or "fresh" (Brand new session & file)
+        self.var_run_mode = tk.StringVar(value="continue")
+
+        # Settings variables
+        self.var_headful = tk.BooleanVar(value=True)       # Default: Chrome visible so user watches live solving!
+        self.var_skip_verified = tk.BooleanVar(value=True) # Default: Skip already verified records
         self.var_delay = tk.DoubleVar(value=2.0)
         self.var_limit = tk.StringVar(value="")
         self.var_offset = tk.DoubleVar(value=0.0)
@@ -146,7 +152,7 @@ class OppoCheckerGUI:
         # Start periodic queue polling
         self.root.after(80, self._poll_queue)
 
-        # Log system status on launch
+        # Initial system and file check
         self._initial_system_check()
 
     def _setup_dark_styles(self) -> None:
@@ -266,25 +272,41 @@ class OppoCheckerGUI:
         )
         lbl_sub.pack(side=tk.LEFT, anchor=tk.W, padx=(8, 0), pady=(2, 0))
 
-        # Top right quick action buttons
+        # Top right quick action buttons (Excel + CSV openers)
         btn_box = tk.Frame(banner_inner, bg=DARK_BG_SURFACE)
         btn_box.pack(side=tk.RIGHT)
 
         btn_open_excel = tk.Button(
             btn_box,
-            text="📊 Open Excel File",
+            text="📊 Open Excel",
             font=("Segoe UI", 9, "bold"),
             bg="#122E1A",
             fg="#7EE787",
             activebackground="#238636",
             activeforeground="#FFFFFF",
             relief=tk.FLAT,
-            padx=12,
-            pady=5,
+            padx=10,
+            pady=4,
             cursor="hand2",
             command=self.open_excel_file,
         )
-        btn_open_excel.pack(side=tk.LEFT, padx=6)
+        btn_open_excel.pack(side=tk.LEFT, padx=4)
+
+        btn_open_csv = tk.Button(
+            btn_box,
+            text="📄 Open CSV",
+            font=("Segoe UI", 9, "bold"),
+            bg="#162C42",
+            fg="#79C0FF",
+            activebackground="#1F4B78",
+            activeforeground="#FFFFFF",
+            relief=tk.FLAT,
+            padx=10,
+            pady=4,
+            cursor="hand2",
+            command=self.open_csv_file,
+        )
+        btn_open_csv.pack(side=tk.LEFT, padx=4)
 
         btn_setup = tk.Button(
             btn_box,
@@ -295,18 +317,18 @@ class OppoCheckerGUI:
             activebackground=DARK_BTN_NEUTRAL_HOVER,
             activeforeground=DARK_TEXT_PRIMARY,
             relief=tk.FLAT,
-            padx=10,
-            pady=5,
+            padx=8,
+            pady=4,
             cursor="hand2",
             command=self.setup_playwright_browsers,
         )
         btn_setup.pack(side=tk.LEFT, padx=4)
 
-        # Stat cards row
+        # Stat cards row (Always shows exact numbers in sheet)
         stats_frame = tk.Frame(self.root, bg=DARK_BG_MAIN)
         stats_frame.pack(side=tk.TOP, fill=tk.X, padx=16, pady=(10, 6))
 
-        self._create_stat_card(stats_frame, "Total Loaded", self.stat_total, "StatNumber.TLabel", 0)
+        self._create_stat_card(stats_frame, "Total in Sheet", self.stat_total, "StatNumber.TLabel", 0)
         self._create_stat_card(stats_frame, "Processed", self.stat_processed, "StatNumberInfo.TLabel", 1)
         self._create_stat_card(stats_frame, "Activated (Yes)", self.stat_activated, "StatNumberSuccess.TLabel", 2)
         self._create_stat_card(stats_frame, "Not Activated (No)", self.stat_not_activated, "StatNumberWarning.TLabel", 3)
@@ -318,9 +340,9 @@ class OppoCheckerGUI:
         main_split.pack(side=tk.TOP, fill=tk.BOTH, expand=True, padx=16, pady=(6, 14))
 
         # Left panel (Input & Settings)
-        left_container = tk.Frame(main_split, bg=DARK_BG_SURFACE, bd=0, highlightthickness=1, highlightbackground=DARK_BORDER, width=400)
+        left_container = tk.Frame(main_split, bg=DARK_BG_SURFACE, bd=0, highlightthickness=1, highlightbackground=DARK_BORDER, width=410)
         left_container.pack_propagate(False)
-        main_split.add(left_container, minsize=350)
+        main_split.add(left_container, minsize=360)
 
         self._build_left_panel(left_container)
 
@@ -367,10 +389,73 @@ class OppoCheckerGUI:
         pad_x = 14
 
         # ======================================================================
-        # SECTION 1: Serials Input
+        # SECTION 1: Run Mode (Fresh Run vs Continue Existing)
         # ======================================================================
-        lbl_sec1 = tk.Label(scrollable_frame, text="1. Select Serials / IMEIs to Check", font=("Segoe UI", 10, "bold"), bg=DARK_BG_SURFACE, fg=DARK_TEXT_PRIMARY)
-        lbl_sec1.pack(anchor=tk.W, padx=pad_x, pady=(12, 4))
+        lbl_sec0 = tk.Label(scrollable_frame, text="1. Run Mode Selection", font=("Segoe UI", 10, "bold"), bg=DARK_BG_SURFACE, fg=DARK_TEXT_PRIMARY)
+        lbl_sec0.pack(anchor=tk.W, padx=pad_x, pady=(10, 4))
+
+        mode_box = tk.Frame(scrollable_frame, bg=DARK_BG_SURFACE_ALT, bd=0, highlightthickness=1, highlightbackground=DARK_BORDER)
+        mode_box.pack(fill=tk.X, padx=pad_x, pady=2)
+
+        rb_continue = tk.Radiobutton(
+            mode_box,
+            text="⏩  Continue on Existing File (Resume & Update)",
+            variable=self.var_run_mode,
+            value="continue",
+            bg=DARK_BG_SURFACE_ALT,
+            fg=DARK_TEXT_PRIMARY,
+            activebackground=DARK_BG_SURFACE_ALT,
+            activeforeground=DARK_TEXT_PRIMARY,
+            selectcolor=DARK_BG_MAIN,
+            font=("Segoe UI", 9, "bold"),
+            cursor="hand2",
+            command=self._on_run_mode_changed,
+        )
+        rb_continue.pack(anchor=tk.W, padx=10, pady=(8, 2))
+
+        lbl_continue_desc = tk.Label(
+            mode_box,
+            text="Keeps existing file rows, edits/updates records in place, and syncs dashboard with total sheet items.",
+            font=("Segoe UI", 8),
+            bg=DARK_BG_SURFACE_ALT,
+            fg=DARK_TEXT_MUTED,
+            wraplength=330,
+            justify=tk.LEFT,
+        )
+        lbl_continue_desc.pack(anchor=tk.W, padx=28, pady=(0, 6))
+
+        rb_fresh = tk.Radiobutton(
+            mode_box,
+            text="🆕  Fresh New Run (Start Brand New File)",
+            variable=self.var_run_mode,
+            value="fresh",
+            bg=DARK_BG_SURFACE_ALT,
+            fg="#7EE787",
+            activebackground=DARK_BG_SURFACE_ALT,
+            activeforeground="#7EE787",
+            selectcolor=DARK_BG_MAIN,
+            font=("Segoe UI", 9, "bold"),
+            cursor="hand2",
+            command=self._on_run_mode_changed,
+        )
+        rb_fresh.pack(anchor=tk.W, padx=10, pady=(2, 2))
+
+        lbl_fresh_desc = tk.Label(
+            mode_box,
+            text="Resets dashboard to 0, clears table, and creates a fresh output Excel/CSV file with no old data.",
+            font=("Segoe UI", 8),
+            bg=DARK_BG_SURFACE_ALT,
+            fg=DARK_TEXT_MUTED,
+            wraplength=330,
+            justify=tk.LEFT,
+        )
+        lbl_fresh_desc.pack(anchor=tk.W, padx=28, pady=(0, 8))
+
+        # ======================================================================
+        # SECTION 2: Serials Input
+        # ======================================================================
+        lbl_sec1 = tk.Label(scrollable_frame, text="2. Serials / IMEIs to Check", font=("Segoe UI", 10, "bold"), bg=DARK_BG_SURFACE, fg=DARK_TEXT_PRIMARY)
+        lbl_sec1.pack(anchor=tk.W, padx=pad_x, pady=(10, 4))
 
         input_nb = ttk.Notebook(scrollable_frame)
         input_nb.pack(fill=tk.X, padx=pad_x, pady=2)
@@ -455,15 +540,15 @@ class OppoCheckerGUI:
         self.lbl_serials_summary.pack(anchor=tk.W, padx=pad_x, pady=(6, 8))
 
         # ======================================================================
-        # SECTION 2: Browser & Check Settings (SHOW CHROME PROMINENTLY)
+        # SECTION 3: Settings (Show Chrome & Skip Verified)
         # ======================================================================
-        lbl_sec2 = tk.Label(scrollable_frame, text="2. Browser & Verification Settings", font=("Segoe UI", 10, "bold"), bg=DARK_BG_SURFACE, fg=DARK_TEXT_PRIMARY)
+        lbl_sec2 = tk.Label(scrollable_frame, text="3. Browser & Check Settings", font=("Segoe UI", 10, "bold"), bg=DARK_BG_SURFACE, fg=DARK_TEXT_PRIMARY)
         lbl_sec2.pack(anchor=tk.W, padx=pad_x, pady=(8, 4))
 
         settings_box = tk.Frame(scrollable_frame, bg=DARK_BG_SURFACE_ALT, bd=0, highlightthickness=1, highlightbackground=DARK_BORDER)
         settings_box.pack(fill=tk.X, padx=pad_x, pady=2)
 
-        # --- FEATURE: SHOW CHROME PROMINENT TOGGLE ---
+        # Show Chrome toggle
         chrome_highlight_box = tk.Frame(settings_box, bg="#132D48", bd=0, highlightthickness=1, highlightbackground="#1F4B78")
         chrome_highlight_box.pack(fill=tk.X, padx=8, pady=(8, 6))
 
@@ -493,9 +578,9 @@ class OppoCheckerGUI:
         lbl_headful_desc.pack(anchor=tk.W, padx=8, pady=(0, 6))
 
         # Skip verified checkbox
-        chk_skip = tk.Checkbutton(
+        self.chk_skip = tk.Checkbutton(
             settings_box,
-            text="Skip already verified records in Excel",
+            text="Skip already verified records in file",
             variable=self.var_skip_verified,
             bg=DARK_BG_SURFACE_ALT,
             fg=DARK_TEXT_PRIMARY,
@@ -505,9 +590,9 @@ class OppoCheckerGUI:
             font=("Segoe UI", 9),
             cursor="hand2",
         )
-        chk_skip.pack(anchor=tk.W, padx=8, pady=3)
+        self.chk_skip.pack(anchor=tk.W, padx=8, pady=3)
 
-        # Delay slider / spinbox
+        # Delay spinbox
         delay_row = tk.Frame(settings_box, bg=DARK_BG_SURFACE_ALT)
         delay_row.pack(fill=tk.X, padx=8, pady=4)
         tk.Label(delay_row, text="Delay between devices (s):", font=("Segoe UI", 9), bg=DARK_BG_SURFACE_ALT, fg=DARK_TEXT_PRIMARY).pack(side=tk.LEFT)
@@ -529,7 +614,7 @@ class OppoCheckerGUI:
         # Batch limit
         limit_row = tk.Frame(settings_box, bg=DARK_BG_SURFACE_ALT)
         limit_row.pack(fill=tk.X, padx=8, pady=4)
-        tk.Label(limit_row, text="Limit checks (e.g. 5, blank=all):", font=("Segoe UI", 9), bg=DARK_BG_SURFACE_ALT, fg=DARK_TEXT_PRIMARY).pack(side=tk.LEFT)
+        tk.Label(limit_row, text="Limit checks (blank=all):", font=("Segoe UI", 9), bg=DARK_BG_SURFACE_ALT, fg=DARK_TEXT_PRIMARY).pack(side=tk.LEFT)
         ent_limit = tk.Entry(
             limit_row,
             textvariable=self.var_limit,
@@ -562,15 +647,15 @@ class OppoCheckerGUI:
         spn_offset.pack(side=tk.RIGHT)
 
         # ======================================================================
-        # SECTION 3: Output File
+        # SECTION 4: Output File
         # ======================================================================
-        lbl_sec3 = tk.Label(scrollable_frame, text="3. Target Excel Report File", font=("Segoe UI", 10, "bold"), bg=DARK_BG_SURFACE, fg=DARK_TEXT_PRIMARY)
+        lbl_sec3 = tk.Label(scrollable_frame, text="4. Target Output File (.xlsx & .csv)", font=("Segoe UI", 10, "bold"), bg=DARK_BG_SURFACE, fg=DARK_TEXT_PRIMARY)
         lbl_sec3.pack(anchor=tk.W, padx=pad_x, pady=(10, 4))
 
         out_box = tk.Frame(scrollable_frame, bg=DARK_BG_SURFACE)
         out_box.pack(fill=tk.X, padx=pad_x, pady=2)
 
-        ent_output = tk.Entry(
+        self.ent_output = tk.Entry(
             out_box,
             textvariable=self.var_output_path,
             font=("Segoe UI", 9),
@@ -581,7 +666,7 @@ class OppoCheckerGUI:
             bd=1,
             highlightbackground=DARK_BORDER,
         )
-        ent_output.pack(side=tk.LEFT, fill=tk.X, expand=True)
+        self.ent_output.pack(side=tk.LEFT, fill=tk.X, expand=True)
 
         btn_browse_out = tk.Button(
             out_box,
@@ -597,9 +682,9 @@ class OppoCheckerGUI:
         btn_browse_out.pack(side=tk.LEFT, padx=(6, 0))
 
         # ======================================================================
-        # SECTION 4: Action Controls
+        # SECTION 5: Action Controls
         # ======================================================================
-        lbl_sec4 = tk.Label(scrollable_frame, text="4. Execution Controls", font=("Segoe UI", 10, "bold"), bg=DARK_BG_SURFACE, fg=DARK_TEXT_PRIMARY)
+        lbl_sec4 = tk.Label(scrollable_frame, text="5. Execution Controls", font=("Segoe UI", 10, "bold"), bg=DARK_BG_SURFACE, fg=DARK_TEXT_PRIMARY)
         lbl_sec4.pack(anchor=tk.W, padx=pad_x, pady=(12, 4))
 
         # Big Start Button
@@ -653,13 +738,13 @@ class OppoCheckerGUI:
 
         btn_refresh_counts = tk.Button(
             tools_row,
-            text="🔄 Sync Stats",
+            text="🔄 Sync Dashboard",
             font=("Segoe UI", 8),
             bg=DARK_BTN_NEUTRAL,
             fg=DARK_TEXT_PRIMARY,
             relief=tk.FLAT,
             cursor="hand2",
-            command=self.sync_stats_from_excel,
+            command=self.sync_stats_from_file,
         )
         btn_refresh_counts.pack(side=tk.LEFT, expand=True, fill=tk.X, padx=2)
 
@@ -673,7 +758,7 @@ class OppoCheckerGUI:
 
         self.lbl_progress_status = tk.Label(
             progress_box,
-            text="Ready. Select serials and click 'START VERIFICATION'.",
+            text="Ready. Choose run mode and click 'START VERIFICATION'.",
             font=("Segoe UI", 9, "bold"),
             bg=DARK_BG_SURFACE,
             fg=DARK_TEXT_PRIMARY,
@@ -819,7 +904,185 @@ class OppoCheckerGUI:
             self.log("[Ready] All required Python libraries and OpenCV engine loaded successfully.", "success")
 
         # Initial stats check from existing excel if available
-        self.sync_stats_from_excel()
+        self.sync_stats_from_file()
+
+    def _on_run_mode_changed(self) -> None:
+        """Handle toggle between Continue Run and Fresh Run."""
+        mode = self.var_run_mode.get()
+        if mode == "fresh":
+            # Generate a new timestamped file suggestion
+            t_stamp = datetime.datetime.now().strftime("%Y%m%d_%H%M")
+            new_file = RUN_DIR / f"oppo_results_{t_stamp}.xlsx"
+            self.var_output_path.set(str(new_file))
+            self.active_output_file = new_file
+
+            # Fresh run: reset dashing stats and table
+            self.sheet_records.clear()
+            self.clear_table()
+            self._update_dashboard_counts(0, 0, 0, 0, 0, 0)
+            self.chk_skip.config(state=tk.DISABLED)
+            self.var_skip_verified.set(False)
+
+            self.log(f"Switched to FRESH RUN mode. New target output: {new_file.name}", "highlight")
+            self.lbl_progress_status.config(text=f"Fresh run mode active. Will create new file '{new_file.name}' with clean stats.")
+        else:
+            # Continue on standard file
+            default_file = (RUN_DIR / "oppo_results.xlsx").resolve()
+            self.var_output_path.set(str(default_file))
+            self.active_output_file = default_file
+
+            self.chk_skip.config(state=tk.NORMAL)
+            self.var_skip_verified.set(True)
+
+            self.log(f"Switched to CONTINUE mode. Target output: {default_file.name}", "info")
+            self.sync_stats_from_file()
+
+    def _update_dashboard_counts(self, total: int, processed: int, yes: int, no: int, pending: int, failed: int) -> None:
+        """Centralized dashboard updater to ensure sheet rows == dashboard counts always."""
+        self.stat_total.set(total)
+        self.stat_processed.set(processed)
+        self.stat_activated.set(yes)
+        self.stat_not_activated.set(no)
+        self.stat_pending.set(pending)
+        self.stat_failed.set(failed)
+
+    def _sync_dashboard_from_records(self) -> None:
+        """Calculate exact metrics from self.sheet_records cache."""
+        total = len(self.sheet_records)
+        yes = sum(1 for r in self.sheet_records.values() if str(r.get("is_active") or "").strip() == "Yes")
+        no = sum(1 for r in self.sheet_records.values() if str(r.get("is_active") or "").strip() == "No")
+        pending = sum(1 for r in self.sheet_records.values() if str(r.get("is_active") or "").strip() in ["Pending", "Syncing"])
+        failed = sum(
+            1 for r in self.sheet_records.values()
+            if str(r.get("status") or "").strip() in ["Captcha Failed", "Error", "Not Found"]
+            or str(r.get("is_active") or "").strip() in ["Not Found", "Error", "Captcha Failed"]
+        )
+        self._update_dashboard_counts(total, total, yes, no, pending, failed)
+
+    def sync_stats_from_file(self) -> None:
+        """Read existing Excel/CSV output file and sync dashboard + table in-place."""
+        p = Path(self.var_output_path.get())
+        if not p.exists():
+            if self.var_run_mode.get() == "continue":
+                self._update_dashboard_counts(0, 0, 0, 0, 0, 0)
+            return
+
+        self.sheet_records.clear()
+
+        # If Excel file exists
+        if p.suffix.lower() == ".xlsx" and HAS_OPENPYXL:
+            try:
+                wb = openpyxl.load_workbook(p, data_only=True)
+                ws = wb.active
+                headers = [str(cell.value or "").strip() for cell in ws[1]] if ws.max_row >= 1 else []
+
+                col_map = {
+                    "serial": headers.index("Serial / IMEI") if "Serial / IMEI" in headers else 0,
+                    "is_active": headers.index("Active?") if "Active?" in headers else -1,
+                    "activation_date": headers.index("Activation Date") if "Activation Date" in headers else -1,
+                    "activation_comment": headers.index("Activation Comment") if "Activation Comment" in headers else -1,
+                    "model_name": headers.index("Model Name") if "Model Name" in headers else -1,
+                    "color": headers.index("Color") if "Color" in headers else -1,
+                    "status": headers.index("Check Status") if "Check Status" in headers else -1,
+                    "checked_at": headers.index("Last Checked") if "Last Checked" in headers else -1,
+                }
+
+                for row in ws.iter_rows(min_row=2, values_only=True):
+                    if not row or not row[0]:
+                        continue
+                    sn = str(row[col_map["serial"]]).strip()
+                    if not sn:
+                        continue
+
+                    rec = {
+                        "serial": sn,
+                        "is_active": str(row[col_map["is_active"]] or "").strip() if col_map["is_active"] != -1 and len(row) > col_map["is_active"] else "",
+                        "activation_date": str(row[col_map["activation_date"]] or "").strip() if col_map["activation_date"] != -1 and len(row) > col_map["activation_date"] else "",
+                        "activation_comment": str(row[col_map["activation_comment"]] or "").strip() if col_map["activation_comment"] != -1 and len(row) > col_map["activation_comment"] else "",
+                        "model_name": str(row[col_map["model_name"]] or "").strip() if col_map["model_name"] != -1 and len(row) > col_map["model_name"] else "",
+                        "color": str(row[col_map["color"]] or "").strip() if col_map["color"] != -1 and len(row) > col_map["color"] else "",
+                        "status": str(row[col_map["status"]] or "").strip() if col_map["status"] != -1 and len(row) > col_map["status"] else "",
+                        "checked_at": str(row[col_map["checked_at"]] or "").strip() if col_map["checked_at"] != -1 and len(row) > col_map["checked_at"] else "",
+                    }
+                    self.sheet_records[sn] = rec
+
+                # Populate / refresh table in place
+                self._refresh_tree_from_sheet_records()
+                self._sync_dashboard_from_records()
+                self.log(f"Synced {len(self.sheet_records)} elements from {p.name}. Dashboard updated 1:1.", "info")
+            except Exception as e:
+                self.log(f"Notice: Could not read {p.name}: {e}", "warning")
+
+    def _refresh_tree_from_sheet_records(self) -> None:
+        """Update Treeview table from self.sheet_records in place (no duplicates)."""
+        self.clear_table()
+        for sn, r in self.sheet_records.items():
+            act = r.get("is_active", "")
+            stat = r.get("status", "")
+            tag = "tag_info"
+            if act == "Yes":
+                tag = "tag_yes"
+            elif act == "No":
+                tag = "tag_no"
+            elif act in ["Pending", "Syncing"]:
+                tag = "tag_pending"
+            elif stat in ["Captcha Failed", "Error", "Not Found"]:
+                tag = "tag_fail"
+
+            self.tree.insert(
+                "",
+                0,
+                iid=sn,
+                values=(
+                    sn,
+                    act,
+                    r.get("activation_date", ""),
+                    r.get("activation_comment", ""),
+                    r.get("model_name", ""),
+                    r.get("color", ""),
+                    stat,
+                    r.get("checked_at", ""),
+                ),
+                tags=(tag,),
+            )
+
+    def _upsert_tree_row(self, res: dict[str, Any]) -> None:
+        """Insert or update a single row in the Treeview in place."""
+        sn = res.get("serial", "")
+        if not sn:
+            return
+
+        act = res.get("is_active", "")
+        stat = res.get("status", "")
+        t_now = datetime.datetime.now().strftime("%H:%M:%S")
+
+        tag = "tag_info"
+        if act == "Yes":
+            tag = "tag_yes"
+        elif act == "No":
+            tag = "tag_no"
+        elif act in ["Pending", "Syncing"]:
+            tag = "tag_pending"
+        elif stat in ["Captcha Failed", "Error", "Not Found"]:
+            tag = "tag_fail"
+
+        vals = (
+            sn,
+            act,
+            res.get("activation_date", ""),
+            res.get("activation_comment", ""),
+            res.get("model_name", ""),
+            res.get("color", ""),
+            stat,
+            t_now,
+        )
+
+        if self.tree.exists(sn):
+            # In-place edit of existing row!
+            self.tree.item(sn, values=vals, tags=(tag,))
+        else:
+            # Insert new row
+            self.tree.insert("", 0, iid=sn, values=vals, tags=(tag,))
 
     def install_all_dependencies(self) -> None:
         """Run pip install -r requirements.txt and playwright install in background."""
@@ -831,7 +1094,6 @@ class OppoCheckerGUI:
                 if not req_path.exists():
                     req_path = APP_DIR / "requirements.txt"
 
-                # 1. pip install -r requirements.txt
                 cmd1 = [sys.executable, "-m", "pip", "install", "-r", str(req_path)]
                 proc1 = subprocess.Popen(
                     cmd1,
@@ -848,7 +1110,6 @@ class OppoCheckerGUI:
                             self.msg_queue.put(("LOG", ("info", f"[Pip] {l}")))
                 proc1.wait()
 
-                # 2. playwright install chromium
                 self._run_playwright_install()
 
                 self.msg_queue.put(("LOG", ("success", "All dependencies installed successfully!")))
@@ -861,7 +1122,6 @@ class OppoCheckerGUI:
     def _run_playwright_install(self) -> int:
         """Run playwright install chromium supporting both regular Python and PyInstaller frozen EXE."""
         try:
-            # Check if we can use playwright internal driver directly
             from playwright._impl._driver import compute_driver_executable, get_driver_env
             node_exe, cli_js = compute_driver_executable()
             cmd = [str(node_exe), str(cli_js), "install", "chromium"]
@@ -901,7 +1161,6 @@ class OppoCheckerGUI:
             self.loaded_serials = serials
             self.lbl_selected_file.config(text=f"Current: {path.name} ({len(serials)} serials)")
             self.lbl_serials_summary.config(text=f"{len(serials)} serials loaded from {path.name}")
-            self.stat_total.set(len(serials))
             self.log(f"Loaded {len(serials)} serial(s) from {path}", "info")
         except Exception as e:
             messagebox.showerror("File Error", f"Could not read input file:\n{e}")
@@ -918,7 +1177,6 @@ class OppoCheckerGUI:
                 self.loaded_serials = serials
                 self.lbl_selected_file.config(text=f"Current: serials.txt ({len(serials)} serials)")
                 self.lbl_serials_summary.config(text=f"{len(serials)} serials loaded from serials.txt")
-                self.stat_total.set(len(serials))
                 self.log(f"Auto-loaded {len(serials)} serials from serials.txt", "info")
             except Exception as e:
                 self.log(f"Could not auto-load serials.txt: {e}", "warning")
@@ -930,82 +1188,53 @@ class OppoCheckerGUI:
         lines = [line.strip() for line in content.splitlines() if line.strip() and not line.strip().startswith("#")]
         self.loaded_serials = lines
         self.lbl_serials_summary.config(text=f"{len(lines)} serials ready from pasted text")
-        self.stat_total.set(len(lines))
 
     def browse_output_file(self) -> None:
         f = filedialog.asksaveasfilename(
-            title="Choose Output Excel File",
+            title="Choose Output Report File",
             defaultextension=".xlsx",
-            initialfile="oppo_results.xlsx",
-            filetypes=[("Excel Files", "*.xlsx")],
+            initialfile="oppo_results.xlsx" if self.var_run_mode.get() == "continue" else "oppo_results_new.xlsx",
+            filetypes=[("Excel Files (*.xlsx)", "*.xlsx"), ("CSV Files (*.csv)", "*.csv"), ("All Files", "*.*")],
         )
         if f:
             self.var_output_path.set(f)
             self.active_output_file = Path(f)
-            self.log(f"Output Excel set to: {f}", "info")
-            self.sync_stats_from_excel()
+            self.log(f"Output report target set to: {f}", "info")
+            if self.var_run_mode.get() == "continue":
+                self.sync_stats_from_file()
 
     def open_excel_file(self) -> None:
-        """Open the generated Excel spreadsheet with the default Windows application."""
+        """Open the generated Excel spreadsheet with default Windows app."""
         p = Path(self.var_output_path.get()).resolve()
-        if not p.exists():
-            messagebox.showinfo("Excel File Not Found", f"The file '{p.name}' does not exist yet.\nRun verification first to generate it.")
+        xlsx_path = p.with_suffix(".xlsx")
+        if not xlsx_path.exists():
+            messagebox.showinfo("Excel File Not Found", f"The file '{xlsx_path.name}' does not exist yet.\nRun verification first to generate it.")
             return
 
         try:
-            os.startfile(str(p))
-            self.log(f"Opened Excel report: {p}", "success")
+            os.startfile(str(xlsx_path))
+            self.log(f"Opened Excel report: {xlsx_path}", "success")
         except Exception as e:
             messagebox.showerror("Open File Error", f"Could not open file in Excel:\n{e}")
+
+    def open_csv_file(self) -> None:
+        """Open the companion CSV spreadsheet with default Windows app."""
+        p = Path(self.var_output_path.get()).resolve()
+        csv_path = p.with_suffix(".csv")
+        if not csv_path.exists():
+            messagebox.showinfo("CSV File Not Found", f"The file '{csv_path.name}' does not exist yet.\nRun verification first to generate it.")
+            return
+
+        try:
+            os.startfile(str(csv_path))
+            self.log(f"Opened CSV report: {csv_path}", "success")
+        except Exception as e:
+            messagebox.showerror("Open File Error", f"Could not open CSV file:\n{e}")
 
     def clear_table(self) -> None:
         for item in self.tree.get_children():
             self.tree.delete(item)
         self.log("Results table cleared.", "info")
-
-    def sync_stats_from_excel(self) -> None:
-        """Read existing Excel output and update the counters."""
-        p = Path(self.var_output_path.get())
-        if not p.exists() or not HAS_OPENPYXL:
-            return
-
-        try:
-            wb = openpyxl.load_workbook(p, data_only=True)
-            ws = wb.active
-            headers = [cell.value for cell in ws[1]] if ws.max_row >= 1 else []
-
-            act_col = headers.index("Active?") if "Active?" in headers else -1
-            stat_col = headers.index("Check Status") if "Check Status" in headers else -1
-
-            yes_count = 0
-            no_count = 0
-            pending_count = 0
-            failed_count = 0
-            total_records = 0
-
-            for row in ws.iter_rows(min_row=2, values_only=True):
-                if not row or not row[0]:
-                    continue
-                total_records += 1
-                act_val = str(row[act_col] or "").strip() if act_col != -1 and len(row) > act_col else ""
-                stat_val = str(row[stat_col] or "").strip() if stat_col != -1 and len(row) > stat_col else ""
-
-                if act_val == "Yes":
-                    yes_count += 1
-                elif act_val == "No":
-                    no_count += 1
-                elif act_val in ["Pending", "Syncing"]:
-                    pending_count += 1
-                elif stat_val in ["Captcha Failed", "Error", "Not Found"]:
-                    failed_count += 1
-
-            self.stat_activated.set(yes_count)
-            self.stat_not_activated.set(no_count)
-            self.stat_pending.set(pending_count)
-            self.stat_failed.set(failed_count)
-            self.log(f"Synced stats from {p.name}: {total_records} saved records found.", "info")
-        except Exception as e:
-            self.log(f"Notice: Could not read {p.name} for stats sync: {e}", "warning")
 
     def setup_playwright_browsers(self) -> None:
         """One-click tool to install Chromium browser for customers."""
@@ -1042,17 +1271,24 @@ class OppoCheckerGUI:
             lim = int(limit_val)
             serials = serials[:lim]
 
+        is_fresh = (self.var_run_mode.get() == "fresh")
+        if is_fresh:
+            # Fresh run: clear dashboard and table completely before start
+            self.sheet_records.clear()
+            self.clear_table()
+            self._update_dashboard_counts(0, 0, 0, 0, 0, 0)
+
         self.stop_requested.clear()
         self.is_running = True
         self.btn_start.config(state=tk.DISABLED, bg="#484F58")
         self.btn_stop.config(state=tk.NORMAL)
         self.progress_bar.config(value=0)
-        self.stat_processed.set(0)
 
         params = {
             "serials": serials,
             "headful": self.var_headful.get(),
-            "skip_verified": self.var_skip_verified.get(),
+            "skip_verified": self.var_skip_verified.get() and not is_fresh,
+            "fresh": is_fresh,
             "delay": self.var_delay.get(),
             "offset": self.var_offset.get(),
             "output_path": Path(self.var_output_path.get()),
@@ -1071,18 +1307,20 @@ class OppoCheckerGUI:
         self.btn_stop.config(state=tk.DISABLED)
 
     def _worker_run(self, params: dict[str, Any]) -> None:
-        """Background thread logic running Playwright and saving Excel."""
+        """Background thread logic running Playwright and saving Excel/CSV."""
         serials: list[str] = params["serials"]
         headful: bool = params["headful"]
         skip_verified: bool = params["skip_verified"]
+        fresh_mode: bool = params["fresh"]
         delay: float = params["delay"]
         offset: float = params["offset"]
         output_path: Path = params["output_path"]
 
-        self.msg_queue.put(("LOG", ("info", f"Started check batch. Target serials: {len(serials)} | Browser: {'VISIBLE (Watch Live)' if headful else 'Background Headless'}")))
+        mode_str = "FRESH RUN" if fresh_mode else "CONTINUE RUN"
+        self.msg_queue.put(("LOG", ("info", f"Started [{mode_str}]. Target serials: {len(serials)} | Browser: {'VISIBLE (Watch Live)' if headful else 'Background Headless'}")))
 
-        # Check skip verified
-        if skip_verified and output_path.exists() and HAS_OPENPYXL:
+        # Check skip verified if continuing
+        if skip_verified and not fresh_mode and output_path.exists() and HAS_OPENPYXL:
             try:
                 wb = openpyxl.load_workbook(output_path, data_only=True)
                 ws = wb.active
@@ -1097,13 +1335,13 @@ class OppoCheckerGUI:
                 serials = [s for s in serials if s not in found_sns]
                 skipped_count = original_len - len(serials)
                 if skipped_count > 0:
-                    self.msg_queue.put(("LOG", ("info", f"Skipping {skipped_count} serials already marked as 'Found' in Excel.")))
+                    self.msg_queue.put(("LOG", ("info", f"Skipping {skipped_count} serials already marked as 'Found' in {output_path.name}.")))
             except Exception as e:
                 self.msg_queue.put(("LOG", ("warning", f"Could not check existing records: {e}")))
 
         total = len(serials)
         if total == 0:
-            self.msg_queue.put(("LOG", ("success", "All serials are already verified in Excel!")))
+            self.msg_queue.put(("LOG", ("success", "All target serials are already verified in file!")))
             self.msg_queue.put(("FINISHED", {"total": 0, "processed": 0}))
             return
 
@@ -1147,11 +1385,11 @@ class OppoCheckerGUI:
                     res = check_oppo_serial(page, sn, on_status=on_status_cb, fine_tune_offset=offset)
                     results_accum.append(res)
 
-                    # Update Excel safely with permission error retry handling
-                    self._safe_save_excel(results_accum, output_path)
+                    # Save to Excel & CSV with in-place row update
+                    summary = self._safe_save_excel(results_accum, output_path, fresh=fresh_mode)
 
-                    # Send result to UI
-                    self.msg_queue.put(("ROW_RESULT", res))
+                    # Send result to UI with updated summary counts
+                    self.msg_queue.put(("ROW_RESULT", (res, summary, idx, total)))
 
                     log_msg = f"[{idx}/{total}] {sn} -> Active: {res.get('is_active')} | Model: {res.get('model_name') or 'N/A'}"
                     if res.get("is_active") == "Yes":
@@ -1161,11 +1399,9 @@ class OppoCheckerGUI:
                     else:
                         self.msg_queue.put(("LOG", ("info", log_msg)))
 
-                    # Update progress bar
                     current_pct = int((idx / total) * 100)
                     self.msg_queue.put(("PROGRESS", (current_pct, f"[{idx}/{total}] Completed {sn}")))
 
-                    # Delay between checks if not last item
                     if idx < total and not self.stop_requested.is_set():
                         time.sleep(delay)
 
@@ -1176,16 +1412,16 @@ class OppoCheckerGUI:
 
         # Final save
         if results_accum:
-            self._safe_save_excel(results_accum, output_path)
+            self._safe_save_excel(results_accum, output_path, fresh=fresh_mode)
 
         self.msg_queue.put(("FINISHED", {"total": total, "processed": len(results_accum)}))
 
-    def _safe_save_excel(self, results: list[dict[str, Any]], output_path: Path) -> None:
-        """Save results to Excel with retry on Windows file lock."""
+    def _safe_save_excel(self, results: list[dict[str, Any]], output_path: Path, fresh: bool = False) -> dict[str, Any]:
+        """Save results to Excel/CSV with retry on Windows file lock, returning summary stats."""
         for attempt in range(3):
             try:
-                save_to_excel(results, output_path, quiet=True)
-                return
+                summary = save_to_excel(results, output_path, quiet=True, fresh=fresh)
+                return summary
             except PermissionError:
                 if attempt == 0:
                     self.msg_queue.put(("LOG", ("warning", f"[Notice] {output_path.name} is open in Excel! Please close it to allow saving.")))
@@ -1193,6 +1429,7 @@ class OppoCheckerGUI:
             except Exception as e:
                 self.msg_queue.put(("LOG", ("error", f"Error saving Excel: {e}")))
                 break
+        return {}
 
     def _poll_queue(self) -> None:
         """Process background worker messages and update UI widgets."""
@@ -1217,46 +1454,33 @@ class OppoCheckerGUI:
                 self.lbl_progress_status.config(text=payload)
 
             elif msg_type == "ROW_RESULT":
-                res = payload
+                res, summary, idx, total_batch = payload
                 sn = res.get("serial", "")
-                act = res.get("is_active", "")
-                act_date = res.get("activation_date", "")
-                act_comment = res.get("activation_comment", "")
-                model = res.get("model_name", "")
-                color = res.get("color", "")
-                status = res.get("status", "")
-                t_now = datetime.datetime.now().strftime("%H:%M:%S")
+                if sn:
+                    self.sheet_records[sn] = res
+                    # Update Treeview in place (editing existing row or adding new)
+                    self._upsert_tree_row(res)
 
-                tag = "tag_info"
-                if act == "Yes":
-                    tag = "tag_yes"
-                    self.stat_activated.set(self.stat_activated.get() + 1)
-                elif act == "No":
-                    tag = "tag_no"
-                    self.stat_not_activated.set(self.stat_not_activated.get() + 1)
-                elif act in ["Pending", "Syncing"]:
-                    tag = "tag_pending"
-                    self.stat_pending.set(self.stat_pending.get() + 1)
-                elif status in ["Captcha Failed", "Error", "Not Found"]:
-                    tag = "tag_fail"
-                    self.stat_failed.set(self.stat_failed.get() + 1)
-
-                self.stat_processed.set(self.stat_processed.get() + 1)
-
-                self.tree.insert(
-                    "",
-                    0,
-                    values=(sn, act, act_date, act_comment, model, color, status, t_now),
-                    tags=(tag,),
-                )
+                # Update dashboard counts directly from sheet summary (Number of elements in sheet == dashing always!)
+                if isinstance(summary, dict) and summary:
+                    self._update_dashboard_counts(
+                        total=summary.get("total", len(self.sheet_records)),
+                        processed=summary.get("total", len(self.sheet_records)),
+                        yes=summary.get("yes", 0),
+                        no=summary.get("no", 0),
+                        pending=summary.get("pending", 0),
+                        failed=summary.get("failed", 0),
+                    )
+                else:
+                    self._sync_dashboard_from_records()
 
             elif msg_type == "FINISHED":
                 self.is_running = False
                 self.btn_start.config(state=tk.NORMAL, bg=DARK_BTN_GREEN)
                 self.btn_stop.config(state=tk.DISABLED)
-                self.lbl_progress_status.config(text="Verification completed successfully! Click 'Open Excel' to view report.")
+                self.lbl_progress_status.config(text="Verification completed successfully! Click 'Open Excel' or 'Open CSV' to view report.")
                 self.progress_bar.config(value=100)
-                self.log("Batch finished. Excel spreadsheet updated.", "success")
+                self.log("Batch finished. Excel and CSV files updated successfully.", "success")
                 messagebox.showinfo("Done", f"Verification completed!\nProcessed {payload.get('processed', 0)} of {payload.get('total', 0)} devices.")
 
             elif msg_type == "POPUP_INFO":
