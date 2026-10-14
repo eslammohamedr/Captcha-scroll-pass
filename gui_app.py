@@ -1,0 +1,1038 @@
+"""OPPO Serial & IMEI Verification GUI Application.
+
+A complete Windows Desktop application for bulk-checking OPPO devices
+with automated Dingxiang slider CAPTCHA solving, live progress tracking,
+interactive results table, and formatted Excel reporting.
+"""
+
+from __future__ import annotations
+
+import ctypes
+import datetime
+import os
+import queue
+import subprocess
+import sys
+import threading
+import time
+from pathlib import Path
+from typing import Any
+
+# Enable High-DPI awareness on Windows before importing Tkinter
+if sys.platform == "win32":
+    try:
+        ctypes.windll.shcore.SetProcessDpiAwareness(1)
+    except Exception:
+        try:
+            ctypes.windll.user32.SetProcessDPIAware()
+        except Exception:
+            pass
+
+import tkinter as tk
+from tkinter import filedialog, messagebox, ttk
+from tkinter.scrolledtext import ScrolledText
+
+# Core automation imports
+try:
+    from playwright.sync_api import sync_playwright
+    HAS_PLAYWRIGHT = True
+except ImportError:
+    HAS_PLAYWRIGHT = False
+
+try:
+    import openpyxl
+    HAS_OPENPYXL = True
+except ImportError:
+    HAS_OPENPYXL = False
+
+# Import checker logic from check_oppo_cv
+try:
+    from check_oppo_cv import check_oppo_serial, read_identifiers, save_to_excel
+    HAS_CHECKER = True
+except Exception as e:
+    HAS_CHECKER = False
+    CHECKER_IMPORT_ERROR = str(e)
+
+
+# Default styles & color palette (Modern clean Windows aesthetic)
+COLOR_PRIMARY = "#0078D4"       # Fluent Blue
+COLOR_PRIMARY_HOVER = "#005A9E"
+COLOR_SUCCESS = "#107C41"       # Excel Green
+COLOR_SUCCESS_HOVER = "#0B5A2F"
+COLOR_DANGER = "#D83B01"        # Microsoft Red
+COLOR_DANGER_HOVER = "#A80000"
+COLOR_BG = "#F3F3F3"
+COLOR_CARD_BG = "#FFFFFF"
+COLOR_TEXT_MAIN = "#1A1A1A"
+COLOR_TEXT_MUTED = "#605E5C"
+COLOR_BORDER = "#E1DFDD"
+
+
+class OppoCheckerGUI:
+    def __init__(self, root: tk.Tk) -> None:
+        self.root = root
+        self.root.title("OPPO Device Verification & CAPTCHA Solver")
+        self.root.geometry("1180x820")
+        self.root.minsize(980, 680)
+
+        # Apply base background
+        self.root.configure(bg=COLOR_BG)
+
+        # Threading & queues
+        self.msg_queue: queue.Queue[tuple[str, Any]] = queue.Queue()
+        self.worker_thread: threading.Thread | None = None
+        self.stop_requested = threading.Event()
+        self.is_running = False
+
+        # Current loaded serials
+        self.loaded_serials: list[str] = []
+        self.active_output_file: Path = Path("oppo_results.xlsx").resolve()
+
+        # Stats counters
+        self.stat_total = tk.IntVar(value=0)
+        self.stat_processed = tk.IntVar(value=0)
+        self.stat_activated = tk.IntVar(value=0)
+        self.stat_not_activated = tk.IntVar(value=0)
+        self.stat_pending = tk.IntVar(value=0)
+        self.stat_failed = tk.IntVar(value=0)
+
+        # Settings variables
+        self.var_headful = tk.BooleanVar(value=False)
+        self.var_skip_verified = tk.BooleanVar(value=True)
+        self.var_delay = tk.DoubleVar(value=2.0)
+        self.var_limit = tk.StringVar(value="")
+        self.var_offset = tk.DoubleVar(value=0.0)
+        self.var_output_path = tk.StringVar(value=str(self.active_output_file))
+
+        # Setup custom styles
+        self._setup_styles()
+
+        # Build UI layout
+        self._build_ui()
+
+        # Start periodic queue polling
+        self.root.after(80, self._poll_queue)
+
+        # Log system status on launch
+        self._initial_system_check()
+
+    def _setup_styles(self) -> None:
+        style = ttk.Style()
+        try:
+            style.theme_use("clam")
+        except Exception:
+            pass
+
+        # Global base styling
+        style.configure(".", font=("Segoe UI", 9), background=COLOR_BG)
+        style.configure("TFrame", background=COLOR_BG)
+        style.configure("Card.TFrame", background=COLOR_CARD_BG, relief="solid", borderwidth=1)
+        style.configure("TLabel", background=COLOR_BG, foreground=COLOR_TEXT_MAIN)
+        style.configure("Card.TLabel", background=COLOR_CARD_BG, foreground=COLOR_TEXT_MAIN)
+
+        # Headers
+        style.configure("Title.TLabel", font=("Segoe UI", 14, "bold"), foreground=COLOR_TEXT_MAIN)
+        style.configure("Subtitle.TLabel", font=("Segoe UI", 9), foreground=COLOR_TEXT_MUTED)
+        style.configure("Section.TLabel", font=("Segoe UI", 10, "bold"), foreground=COLOR_TEXT_MAIN)
+
+        # Stats styles
+        style.configure("StatNumber.TLabel", font=("Segoe UI", 16, "bold"), foreground=COLOR_PRIMARY)
+        style.configure("StatNumberSuccess.TLabel", font=("Segoe UI", 16, "bold"), foreground=COLOR_SUCCESS)
+        style.configure("StatNumberDanger.TLabel", font=("Segoe UI", 16, "bold"), foreground=COLOR_DANGER)
+        style.configure("StatNumberWarning.TLabel", font=("Segoe UI", 16, "bold"), foreground="#C19C00")
+        style.configure("StatNumberInfo.TLabel", font=("Segoe UI", 16, "bold"), foreground="#0078D4")
+        style.configure("StatLabel.TLabel", font=("Segoe UI", 8), foreground=COLOR_TEXT_MUTED)
+
+        # Notebook tabs
+        style.configure("TNotebook", background=COLOR_BG)
+        style.configure("TNotebook.Tab", font=("Segoe UI", 9, "bold"), padding=[12, 6])
+        style.map("TNotebook.Tab", background=[("selected", COLOR_CARD_BG)], foreground=[("selected", COLOR_PRIMARY)])
+
+        # Treeview table
+        style.configure("Treeview", font=("Segoe UI", 9), rowheight=26, background=COLOR_CARD_BG, fieldbackground=COLOR_CARD_BG)
+        style.configure("Treeview.Heading", font=("Segoe UI", 9, "bold"), background="#EAEAEA", foreground=COLOR_TEXT_MAIN)
+        style.map("Treeview", background=[("selected", "#CCE8FF")], foreground=[("selected", "#000000")])
+
+        # Progress bar
+        style.configure("Accent.Horizontal.TProgressbar", troughcolor="#E1DFDD", background=COLOR_PRIMARY, thickness=12)
+
+    def _build_ui(self) -> None:
+        # Top banner frame
+        banner_frame = tk.Frame(self.root, bg=COLOR_CARD_BG, height=65, bd=0, highlightthickness=1, highlightbackground=COLOR_BORDER)
+        banner_frame.pack(side=tk.TOP, fill=tk.X, padx=0, pady=0)
+        banner_frame.pack_propagate(False)
+
+        banner_inner = tk.Frame(banner_frame, bg=COLOR_CARD_BG)
+        banner_inner.pack(fill=tk.BOTH, expand=True, padx=18, pady=8)
+
+        lbl_title = tk.Label(banner_inner, text="OPPO Device Verification Portal", font=("Segoe UI", 13, "bold"), bg=COLOR_CARD_BG, fg=COLOR_TEXT_MAIN)
+        lbl_title.pack(side=tk.LEFT, anchor=tk.W)
+
+        lbl_sub = tk.Label(banner_inner, text="  |  Automated Closed-Loop OpenCV CAPTCHA Solver", font=("Segoe UI", 9), bg=COLOR_CARD_BG, fg=COLOR_TEXT_MUTED)
+        lbl_sub.pack(side=tk.LEFT, anchor=tk.W, pady=(2, 0))
+
+        # Top right quick action buttons
+        btn_box = tk.Frame(banner_inner, bg=COLOR_CARD_BG)
+        btn_box.pack(side=tk.RIGHT)
+
+        btn_open_excel = tk.Button(
+            btn_box,
+            text="📊 Open Excel",
+            font=("Segoe UI", 9, "bold"),
+            bg="#E8F4EC",
+            fg=COLOR_SUCCESS,
+            activebackground="#D0EAD6",
+            activeforeground=COLOR_SUCCESS,
+            relief=tk.FLAT,
+            padx=10,
+            pady=4,
+            cursor="hand2",
+            command=self.open_excel_file,
+        )
+        btn_open_excel.pack(side=tk.LEFT, padx=5)
+
+        btn_setup = tk.Button(
+            btn_box,
+            text="⚙ Setup Browser",
+            font=("Segoe UI", 9),
+            bg="#F0F0F0",
+            fg=COLOR_TEXT_MAIN,
+            activebackground="#E5E5E5",
+            relief=tk.FLAT,
+            padx=10,
+            pady=4,
+            cursor="hand2",
+            command=self.setup_playwright_browsers,
+        )
+        btn_setup.pack(side=tk.LEFT, padx=5)
+
+        # Stat cards row
+        stats_frame = tk.Frame(self.root, bg=COLOR_BG)
+        stats_frame.pack(side=tk.TOP, fill=tk.X, padx=14, pady=(10, 6))
+
+        self._create_stat_card(stats_frame, "Total Serials", self.stat_total, "StatNumber.TLabel", 0)
+        self._create_stat_card(stats_frame, "Processed", self.stat_processed, "StatNumberInfo.TLabel", 1)
+        self._create_stat_card(stats_frame, "Activated (Yes)", self.stat_activated, "StatNumberSuccess.TLabel", 2)
+        self._create_stat_card(stats_frame, "Not Activated (No)", self.stat_not_activated, "StatNumberWarning.TLabel", 3)
+        self._create_stat_card(stats_frame, "Pending Sync", self.stat_pending, "StatNumberInfo.TLabel", 4)
+        self._create_stat_card(stats_frame, "Failed / Errors", self.stat_failed, "StatNumberDanger.TLabel", 5)
+
+        # Split pane (Left: Input & Controls, Right: Table & Logs)
+        main_split = tk.PanedWindow(self.root, orient=tk.HORIZONTAL, bg=COLOR_BORDER, sashwidth=4, bd=0)
+        main_split.pack(side=tk.TOP, fill=tk.BOTH, expand=True, padx=14, pady=(6, 12))
+
+        # Left panel (Input & Settings)
+        left_container = tk.Frame(main_split, bg=COLOR_CARD_BG, bd=0, highlightthickness=1, highlightbackground=COLOR_BORDER, width=380)
+        left_container.pack_propagate(False)
+        main_split.add(left_container, minsize=320)
+
+        self._build_left_panel(left_container)
+
+        # Right panel (Live Results & Activity Logs)
+        right_container = tk.Frame(main_split, bg=COLOR_CARD_BG, bd=0, highlightthickness=1, highlightbackground=COLOR_BORDER)
+        main_split.add(right_container, minsize=500)
+
+        self._build_right_panel(right_container)
+
+    def _create_stat_card(self, parent: tk.Widget, title: str, variable: tk.IntVar, style_name: str, col: int) -> None:
+        card = tk.Frame(parent, bg=COLOR_CARD_BG, bd=0, highlightthickness=1, highlightbackground=COLOR_BORDER)
+        card.grid(row=0, column=col, sticky="nsew", padx=3, pady=2)
+        parent.grid_columnconfigure(col, weight=1)
+
+        inner = tk.Frame(card, bg=COLOR_CARD_BG)
+        inner.pack(fill=tk.BOTH, expand=True, padx=10, pady=6)
+
+        num_lbl = ttk.Label(inner, textvariable=variable, style=style_name)
+        num_lbl.pack(anchor=tk.CENTER)
+
+        lbl = ttk.Label(inner, text=title, style="StatLabel.TLabel")
+        lbl.pack(anchor=tk.CENTER)
+
+    def _build_left_panel(self, parent: tk.Widget) -> None:
+        canvas = tk.Canvas(parent, bg=COLOR_CARD_BG, bd=0, highlightthickness=0)
+        scrollbar = ttk.Scrollbar(parent, orient="vertical", command=canvas.yview)
+        scrollable_frame = tk.Frame(canvas, bg=COLOR_CARD_BG)
+
+        scrollable_frame.bind(
+            "<Configure>",
+            lambda e: canvas.configure(scrollregion=canvas.bbox("all")),
+        )
+        canvas_window = canvas.create_window((0, 0), window=scrollable_frame, anchor="nw")
+
+        def _on_canvas_resize(event):
+            canvas.itemconfig(canvas_window, width=event.width)
+
+        canvas.bind("<Configure>", _on_canvas_resize)
+        canvas.configure(yscrollcommand=scrollbar.set)
+
+        canvas.pack(side=tk.LEFT, fill=tk.BOTH, expand=True)
+        scrollbar.pack(side=tk.RIGHT, fill=tk.Y)
+
+        pad_x = 12
+        pad_y = 6
+
+        # --- Section 1: Serials Input ---
+        lbl_sec1 = tk.Label(scrollable_frame, text="1. Serials / IMEIs to Check", font=("Segoe UI", 10, "bold"), bg=COLOR_CARD_BG, fg=COLOR_TEXT_MAIN)
+        lbl_sec1.pack(anchor=tk.W, padx=pad_x, pady=(10, 4))
+
+        input_nb = ttk.Notebook(scrollable_frame)
+        input_nb.pack(fill=tk.X, padx=pad_x, pady=2)
+
+        # Tab A: File Upload
+        tab_file = tk.Frame(input_nb, bg=COLOR_CARD_BG, padx=8, pady=8)
+        input_nb.add(tab_file, text="📁 File (.txt, .xlsx, .csv)")
+
+        self.lbl_selected_file = tk.Label(tab_file, text="Current: serials.txt (Auto-detected)", font=("Segoe UI", 8), bg=COLOR_CARD_BG, fg=COLOR_TEXT_MUTED, wraplength=280, justify=tk.LEFT)
+        self.lbl_selected_file.pack(anchor=tk.W, pady=(0, 6))
+
+        file_btn_row = tk.Frame(tab_file, bg=COLOR_CARD_BG)
+        file_btn_row.pack(fill=tk.X)
+
+        btn_browse_serials = tk.Button(
+            file_btn_row,
+            text="Choose File...",
+            font=("Segoe UI", 9),
+            bg="#EAEAEA",
+            relief=tk.FLAT,
+            padx=8,
+            pady=3,
+            command=self.browse_serials_file,
+        )
+        btn_browse_serials.pack(side=tk.LEFT)
+
+        btn_reload_serials = tk.Button(
+            file_btn_row,
+            text="🔄 Reload",
+            font=("Segoe UI", 9),
+            bg="#EAEAEA",
+            relief=tk.FLAT,
+            padx=8,
+            pady=3,
+            command=self.load_serials_from_default,
+        )
+        btn_reload_serials.pack(side=tk.LEFT, padx=6)
+
+        # Tab B: Direct Paste
+        tab_paste = tk.Frame(input_nb, bg=COLOR_CARD_BG, padx=8, pady=8)
+        input_nb.add(tab_paste, text="📝 Paste Serials")
+
+        lbl_paste_hint = tk.Label(tab_paste, text="Paste one serial or IMEI per line:", font=("Segoe UI", 8), bg=COLOR_CARD_BG, fg=COLOR_TEXT_MUTED)
+        lbl_paste_hint.pack(anchor=tk.W, pady=(0, 4))
+
+        self.txt_paste = ScrolledText(tab_paste, height=6, font=("Consolas", 9), relief=tk.SOLID, bd=1)
+        self.txt_paste.pack(fill=tk.BOTH, expand=True)
+        self.txt_paste.bind("<KeyRelease>", self._on_paste_text_changed)
+
+        # Serials count status
+        self.lbl_serials_summary = tk.Label(
+            scrollable_frame,
+            text="0 serials loaded and ready",
+            font=("Segoe UI", 9, "italic"),
+            bg=COLOR_CARD_BG,
+            fg=COLOR_PRIMARY,
+        )
+        self.lbl_serials_summary.pack(anchor=tk.W, padx=pad_x, pady=(4, 8))
+
+        # --- Section 2: Settings & Preferences ---
+        lbl_sec2 = tk.Label(scrollable_frame, text="2. Check Settings", font=("Segoe UI", 10, "bold"), bg=COLOR_CARD_BG, fg=COLOR_TEXT_MAIN)
+        lbl_sec2.pack(anchor=tk.W, padx=pad_x, pady=(8, 4))
+
+        settings_box = tk.Frame(scrollable_frame, bg=COLOR_CARD_BG, bd=1, relief=tk.SOLID)
+        settings_box.pack(fill=tk.X, padx=pad_x, pady=2)
+
+        # Headful checkbox
+        chk_headful = tk.Checkbutton(
+            settings_box,
+            text="Show Browser Window (Visible mode)",
+            variable=self.var_headful,
+            bg=COLOR_CARD_BG,
+            activebackground=COLOR_CARD_BG,
+            font=("Segoe UI", 9),
+        )
+        chk_headful.pack(anchor=tk.W, padx=8, pady=(6, 2))
+
+        # Skip verified checkbox
+        chk_skip = tk.Checkbutton(
+            settings_box,
+            text="Skip already verified records in Excel",
+            variable=self.var_skip_verified,
+            bg=COLOR_CARD_BG,
+            activebackground=COLOR_CARD_BG,
+            font=("Segoe UI", 9),
+        )
+        chk_skip.pack(anchor=tk.W, padx=8, pady=2)
+
+        # Delay slider / spinbox
+        delay_row = tk.Frame(settings_box, bg=COLOR_CARD_BG)
+        delay_row.pack(fill=tk.X, padx=8, pady=4)
+        tk.Label(delay_row, text="Delay between devices (s):", font=("Segoe UI", 9), bg=COLOR_CARD_BG).pack(side=tk.LEFT)
+        spn_delay = tk.Spinbox(delay_row, from_=0.5, to=15.0, increment=0.5, textvariable=self.var_delay, width=5, font=("Segoe UI", 9))
+        spn_delay.pack(side=tk.RIGHT)
+
+        # Batch limit
+        limit_row = tk.Frame(settings_box, bg=COLOR_CARD_BG)
+        limit_row.pack(fill=tk.X, padx=8, pady=4)
+        tk.Label(limit_row, text="Limit checks (Optional):", font=("Segoe UI", 9), bg=COLOR_CARD_BG).pack(side=tk.LEFT)
+        ent_limit = tk.Entry(limit_row, textvariable=self.var_limit, width=6, font=("Segoe UI", 9))
+        ent_limit.pack(side=tk.RIGHT)
+
+        # Fine-tune offset
+        offset_row = tk.Frame(settings_box, bg=COLOR_CARD_BG)
+        offset_row.pack(fill=tk.X, padx=8, pady=(4, 8))
+        tk.Label(offset_row, text="Slider Offset nudge (px):", font=("Segoe UI", 9), bg=COLOR_CARD_BG).pack(side=tk.LEFT)
+        spn_offset = tk.Spinbox(offset_row, from_=-15.0, to=15.0, increment=0.5, textvariable=self.var_offset, width=5, font=("Segoe UI", 9))
+        spn_offset.pack(side=tk.RIGHT)
+
+        # --- Section 3: Output File ---
+        lbl_sec3 = tk.Label(scrollable_frame, text="3. Excel Output Report", font=("Segoe UI", 10, "bold"), bg=COLOR_CARD_BG, fg=COLOR_TEXT_MAIN)
+        lbl_sec3.pack(anchor=tk.W, padx=pad_x, pady=(10, 4))
+
+        out_box = tk.Frame(scrollable_frame, bg=COLOR_CARD_BG)
+        out_box.pack(fill=tk.X, padx=pad_x, pady=2)
+
+        ent_output = tk.Entry(out_box, textvariable=self.var_output_path, font=("Segoe UI", 9))
+        ent_output.pack(side=tk.LEFT, fill=tk.X, expand=True)
+
+        btn_browse_out = tk.Button(out_box, text="Browse", font=("Segoe UI", 8), command=self.browse_output_file, bg="#EAEAEA", relief=tk.FLAT)
+        btn_browse_out.pack(side=tk.LEFT, padx=(4, 0))
+
+        # --- Section 4: Action Controls ---
+        lbl_sec4 = tk.Label(scrollable_frame, text="4. Actions", font=("Segoe UI", 10, "bold"), bg=COLOR_CARD_BG, fg=COLOR_TEXT_MAIN)
+        lbl_sec4.pack(anchor=tk.W, padx=pad_x, pady=(12, 4))
+
+        # Big Start Button
+        self.btn_start = tk.Button(
+            scrollable_frame,
+            text="▶  START VERIFICATION",
+            font=("Segoe UI", 11, "bold"),
+            bg=COLOR_SUCCESS,
+            fg="#FFFFFF",
+            activebackground=COLOR_SUCCESS_HOVER,
+            activeforeground="#FFFFFF",
+            relief=tk.FLAT,
+            pady=8,
+            cursor="hand2",
+            command=self.start_verification,
+        )
+        self.btn_start.pack(fill=tk.X, padx=pad_x, pady=4)
+
+        # Stop Button
+        self.btn_stop = tk.Button(
+            scrollable_frame,
+            text="⏹  STOP / CANCEL",
+            font=("Segoe UI", 10, "bold"),
+            bg=COLOR_DANGER,
+            fg="#FFFFFF",
+            activebackground=COLOR_DANGER_HOVER,
+            activeforeground="#FFFFFF",
+            relief=tk.FLAT,
+            pady=6,
+            cursor="hand2",
+            state=tk.DISABLED,
+            command=self.stop_verification,
+        )
+        self.btn_stop.pack(fill=tk.X, padx=pad_x, pady=4)
+
+        # Quick tools row
+        tools_row = tk.Frame(scrollable_frame, bg=COLOR_CARD_BG)
+        tools_row.pack(fill=tk.X, padx=pad_x, pady=(6, 14))
+
+        btn_clear_table = tk.Button(
+            tools_row,
+            text="🧹 Clear Table",
+            font=("Segoe UI", 8),
+            bg="#F0F0F0",
+            relief=tk.FLAT,
+            command=self.clear_table,
+        )
+        btn_clear_table.pack(side=tk.LEFT, expand=True, fill=tk.X, padx=2)
+
+        btn_refresh_counts = tk.Button(
+            tools_row,
+            text="🔄 Sync Stats",
+            font=("Segoe UI", 8),
+            bg="#F0F0F0",
+            relief=tk.FLAT,
+            command=self.sync_stats_from_excel,
+        )
+        btn_refresh_counts.pack(side=tk.LEFT, expand=True, fill=tk.X, padx=2)
+
+        # Automatically try to load default serials.txt
+        self.load_serials_from_default()
+
+    def _build_right_panel(self, parent: tk.Widget) -> None:
+        # Progress bar & current status at top
+        progress_box = tk.Frame(parent, bg=COLOR_CARD_BG, padx=12, pady=10)
+        progress_box.pack(side=tk.TOP, fill=tk.X)
+
+        self.lbl_progress_status = tk.Label(
+            progress_box,
+            text="Ready. Select serials and click 'Start Verification'.",
+            font=("Segoe UI", 9, "bold"),
+            bg=COLOR_CARD_BG,
+            fg=COLOR_TEXT_MAIN,
+            anchor=tk.W,
+        )
+        self.lbl_progress_status.pack(fill=tk.X, pady=(0, 4))
+
+        self.progress_bar = ttk.Progressbar(
+            progress_box,
+            style="Accent.Horizontal.TProgressbar",
+            mode="determinate",
+            maximum=100,
+            value=0,
+        )
+        self.progress_bar.pack(fill=tk.X)
+
+        # Tabbed view for Results & Console Log
+        notebook = ttk.Notebook(parent)
+        notebook.pack(side=tk.TOP, fill=tk.BOTH, expand=True, padx=8, pady=(4, 8))
+
+        # --- Tab 1: Live Results Table ---
+        tab_results = tk.Frame(notebook, bg=COLOR_CARD_BG)
+        notebook.add(tab_results, text="📋 Live Results Table")
+
+        # Table Treeview
+        columns = (
+            "sn",
+            "active",
+            "act_date",
+            "act_comment",
+            "model",
+            "color",
+            "status",
+            "checked_at",
+        )
+        self.tree = ttk.Treeview(tab_results, columns=columns, show="headings", selectmode="browse")
+
+        self.tree.heading("sn", text="Serial / IMEI")
+        self.tree.heading("active", text="Active?")
+        self.tree.heading("act_date", text="Activation Date")
+        self.tree.heading("act_comment", text="Activation Comment")
+        self.tree.heading("model", text="Model Name")
+        self.tree.heading("color", text="Color")
+        self.tree.heading("status", text="Status")
+        self.tree.heading("checked_at", text="Checked At")
+
+        self.tree.column("sn", width=140, anchor=tk.W)
+        self.tree.column("active", width=75, anchor=tk.CENTER)
+        self.tree.column("act_date", width=110, anchor=tk.CENTER)
+        self.tree.column("act_comment", width=220, anchor=tk.W)
+        self.tree.column("model", width=120, anchor=tk.W)
+        self.tree.column("color", width=90, anchor=tk.W)
+        self.tree.column("status", width=95, anchor=tk.CENTER)
+        self.tree.column("checked_at", width=115, anchor=tk.CENTER)
+
+        # Row color tags
+        self.tree.tag_configure("tag_yes", background="#E2F0D9")
+        self.tree.tag_configure("tag_no", background="#FFF2CC")
+        self.tree.tag_configure("tag_pending", background="#DDEBF7")
+        self.tree.tag_configure("tag_fail", background="#FCE4D6")
+
+        tree_y_scroll = ttk.Scrollbar(tab_results, orient="vertical", command=self.tree.yview)
+        tree_x_scroll = ttk.Scrollbar(tab_results, orient="horizontal", command=self.tree.xview)
+        self.tree.configure(yscrollcommand=tree_y_scroll.set, xscrollcommand=tree_x_scroll.set)
+
+        self.tree.grid(row=0, column=0, sticky="nsew")
+        tree_y_scroll.grid(row=0, column=1, sticky="ns")
+        tree_x_scroll.grid(row=1, column=0, sticky="ew")
+
+        tab_results.grid_rowconfigure(0, weight=1)
+        tab_results.grid_columnconfigure(0, weight=1)
+
+        # Double click to view full detail popup
+        self.tree.bind("<Double-1>", self._on_tree_row_double_click)
+
+        # --- Tab 2: Activity Log ---
+        tab_logs = tk.Frame(notebook, bg=COLOR_CARD_BG)
+        notebook.add(tab_logs, text="📜 Activity Log")
+
+        self.txt_log = ScrolledText(
+            tab_logs,
+            wrap=tk.WORD,
+            font=("Consolas", 9),
+            bg="#1E1E1E",
+            fg="#D4D4D4",
+            insertbackground="#FFFFFF",
+            relief=tk.FLAT,
+        )
+        self.txt_log.pack(fill=tk.BOTH, expand=True, padx=4, pady=4)
+
+        # Log color styles
+        self.txt_log.tag_configure("info", foreground="#9CDCFE")
+        self.txt_log.tag_configure("success", foreground="#4EC9B0")
+        self.txt_log.tag_configure("warning", foreground="#CE9178")
+        self.txt_log.tag_configure("error", foreground="#F48771")
+        self.txt_log.tag_configure("highlight", foreground="#DCDCAA")
+
+        # Bottom log toolbar
+        log_bar = tk.Frame(tab_logs, bg=COLOR_CARD_BG)
+        log_bar.pack(fill=tk.X, padx=4, pady=(0, 4))
+
+        btn_clear_log = tk.Button(log_bar, text="Clear Log", font=("Segoe UI", 8), relief=tk.FLAT, command=lambda: self.txt_log.delete("1.0", tk.END))
+        btn_clear_log.pack(side=tk.RIGHT)
+
+    def log(self, message: str, level: str = "info") -> None:
+        """Post a thread-safe message to the log viewer."""
+        self.msg_queue.put(("LOG", (level, message)))
+
+    def _initial_system_check(self) -> None:
+        """Check prerequisites on start and notify user."""
+        self.log("Initializing OPPO Automation Application v2.0...", "info")
+        if not HAS_CHECKER:
+            self.log(f"[Error] Failed to load automation modules: {CHECKER_IMPORT_ERROR}", "error")
+            messagebox.showerror("Module Error", f"Could not load check_oppo_cv.py:\n{CHECKER_IMPORT_ERROR}")
+            return
+
+        if not HAS_PLAYWRIGHT:
+            self.log("[Warning] Playwright library not detected in current Python environment.", "warning")
+        else:
+            self.log("[Ready] Playwright and OpenCV slider engine loaded successfully.", "success")
+
+        # Initial stats check from existing excel if available
+        self.sync_stats_from_excel()
+
+    def browse_serials_file(self) -> None:
+        f = filedialog.askopenfilename(
+            title="Select Serials / IMEI Input File",
+            filetypes=[("All Supported Files", "*.txt *.xlsx *.csv"), ("Text Files", "*.txt"), ("Excel Files", "*.xlsx"), ("CSV Files", "*.csv")],
+        )
+        if not f:
+            return
+
+        try:
+            path = Path(f)
+            serials = read_identifiers(path)
+            self.loaded_serials = serials
+            self.lbl_selected_file.config(text=f"Current: {path.name} ({len(serials)} serials)")
+            self.lbl_serials_summary.config(text=f"{len(serials)} serials loaded from {path.name}")
+            self.stat_total.set(len(serials))
+            self.log(f"Loaded {len(serials)} serial(s) from {path}", "info")
+        except Exception as e:
+            messagebox.showerror("File Error", f"Could not read input file:\n{e}")
+            self.log(f"Failed to read file {f}: {e}", "error")
+
+    def load_serials_from_default(self) -> None:
+        default_p = Path("serials.txt")
+        if default_p.exists():
+            try:
+                serials = read_identifiers(default_p)
+                self.loaded_serials = serials
+                self.lbl_selected_file.config(text=f"Current: serials.txt ({len(serials)} serials)")
+                self.lbl_serials_summary.config(text=f"{len(serials)} serials loaded from serials.txt")
+                self.stat_total.set(len(serials))
+                self.log(f"Auto-loaded {len(serials)} serials from serials.txt", "info")
+            except Exception as e:
+                self.log(f"Could not auto-load serials.txt: {e}", "warning")
+
+    def _on_paste_text_changed(self, event: Any = None) -> None:
+        content = self.txt_paste.get("1.0", tk.END).strip()
+        if not content:
+            return
+        lines = [line.strip() for line in content.splitlines() if line.strip() and not line.strip().startswith("#")]
+        self.loaded_serials = lines
+        self.lbl_serials_summary.config(text=f"{len(lines)} serials ready from pasted text")
+        self.stat_total.set(len(lines))
+
+    def browse_output_file(self) -> None:
+        f = filedialog.asksaveasfilename(
+            title="Choose Output Excel File",
+            defaultextension=".xlsx",
+            initialfile="oppo_results.xlsx",
+            filetypes=[("Excel Files", "*.xlsx")],
+        )
+        if f:
+            self.var_output_path.set(f)
+            self.active_output_file = Path(f)
+            self.log(f"Output Excel set to: {f}", "info")
+            self.sync_stats_from_excel()
+
+    def open_excel_file(self) -> None:
+        """Open the generated Excel spreadsheet with the default Windows application."""
+        p = Path(self.var_output_path.get()).resolve()
+        if not p.exists():
+            messagebox.showinfo("Excel File Not Found", f"The file '{p.name}' does not exist yet.\nRun verification first to generate it.")
+            return
+
+        try:
+            os.startfile(str(p))
+            self.log(f"Opened Excel report: {p}", "success")
+        except Exception as e:
+            messagebox.showerror("Open File Error", f"Could not open file in Excel:\n{e}")
+
+    def clear_table(self) -> None:
+        for item in self.tree.get_children():
+            self.tree.delete(item)
+        self.log("Results table cleared.", "info")
+
+    def sync_stats_from_excel(self) -> None:
+        """Read existing Excel output and update the counters."""
+        p = Path(self.var_output_path.get())
+        if not p.exists() or not HAS_OPENPYXL:
+            return
+
+        try:
+            wb = openpyxl.load_workbook(p, data_only=True)
+            ws = wb.active
+            headers = [cell.value for cell in ws[1]] if ws.max_row >= 1 else []
+
+            act_col = headers.index("Active?") if "Active?" in headers else -1
+            stat_col = headers.index("Check Status") if "Check Status" in headers else -1
+
+            yes_count = 0
+            no_count = 0
+            pending_count = 0
+            failed_count = 0
+            total_records = 0
+
+            for row in ws.iter_rows(min_row=2, values_only=True):
+                if not row or not row[0]:
+                    continue
+                total_records += 1
+                act_val = str(row[act_col] or "").strip() if act_col != -1 and len(row) > act_col else ""
+                stat_val = str(row[stat_col] or "").strip() if stat_col != -1 and len(row) > stat_col else ""
+
+                if act_val == "Yes":
+                    yes_count += 1
+                elif act_val == "No":
+                    no_count += 1
+                elif act_val in ["Pending", "Syncing"]:
+                    pending_count += 1
+                elif stat_val in ["Captcha Failed", "Error", "Not Found"]:
+                    failed_count += 1
+
+            self.stat_activated.set(yes_count)
+            self.stat_not_activated.set(no_count)
+            self.stat_pending.set(pending_count)
+            self.stat_failed.set(failed_count)
+            self.log(f"Synced stats from {p.name}: {total_records} saved records found.", "info")
+        except Exception as e:
+            self.log(f"Notice: Could not read {p.name} for stats sync: {e}", "warning")
+
+    def setup_playwright_browsers(self) -> None:
+        """One-click tool to install Chromium browser for customers."""
+        if messagebox.askyesno("Setup Browser", "This will download and install the required Chromium browser engine (~150MB).\n\nDo you want to proceed?"):
+            self.log("Starting Chromium browser setup in the background...", "info")
+
+            def _install_worker():
+                try:
+                    cmd = [sys.executable, "-m", "playwright", "install", "chromium"]
+                    proc = subprocess.Popen(
+                        cmd,
+                        stdout=subprocess.PIPE,
+                        stderr=subprocess.STDOUT,
+                        text=True,
+                        bufsize=1,
+                        creationflags=subprocess.CREATE_NO_WINDOW if sys.platform == "win32" else 0,
+                    )
+                    if proc.stdout:
+                        for line in proc.stdout:
+                            clean_line = line.strip()
+                            if clean_line:
+                                self.msg_queue.put(("LOG", ("info", f"[Setup] {clean_line}")))
+                    proc.wait()
+                    if proc.returncode == 0:
+                        self.msg_queue.put(("LOG", ("success", "Chromium browser setup completed successfully!")))
+                        self.msg_queue.put(("POPUP_INFO", ("Setup Complete", "Chromium browser installed and ready!")))
+                    else:
+                        self.msg_queue.put(("LOG", ("error", f"Browser setup exited with error code {proc.returncode}")))
+                except Exception as e:
+                    self.msg_queue.put(("LOG", ("error", f"Browser setup failed: {e}")))
+
+            t = threading.Thread(target=_install_worker, daemon=True)
+            t.start()
+
+    def start_verification(self) -> None:
+        """Initiate background verification thread."""
+        if self.is_running:
+            return
+
+        # Prepare serials
+        # If user typed into the text paste box, prefer it if not empty
+        paste_text = self.txt_paste.get("1.0", tk.END).strip()
+        if paste_text:
+            serials = [line.strip() for line in paste_text.splitlines() if line.strip() and not line.strip().startswith("#")]
+        else:
+            serials = list(self.loaded_serials)
+
+        if not serials:
+            messagebox.showwarning("No Serials", "Please choose a file or paste serial numbers before starting.")
+            return
+
+        # Limit if specified
+        limit_val = self.var_limit.get().strip()
+        if limit_val.isdigit():
+            lim = int(limit_val)
+            serials = serials[:lim]
+
+        # Reset states
+        self.stop_requested.clear()
+        self.is_running = True
+        self.btn_start.config(state=tk.DISABLED, bg="#999999")
+        self.btn_stop.config(state=tk.NORMAL)
+        self.progress_bar.config(value=0)
+        self.stat_processed.set(0)
+
+        # Launch worker
+        params = {
+            "serials": serials,
+            "headful": self.var_headful.get(),
+            "skip_verified": self.var_skip_verified.get(),
+            "delay": self.var_delay.get(),
+            "offset": self.var_offset.get(),
+            "output_path": Path(self.var_output_path.get()),
+        }
+
+        self.worker_thread = threading.Thread(target=self._worker_run, args=(params,), daemon=True)
+        self.worker_thread.start()
+
+    def stop_verification(self) -> None:
+        """Signal background worker to stop gracefully."""
+        if not self.is_running:
+            return
+        self.log("Stopping... Finishing current device operation safely.", "warning")
+        self.lbl_progress_status.config(text="Stopping... Please wait for current device to finish.")
+        self.stop_requested.set()
+        self.btn_stop.config(state=tk.DISABLED)
+
+    def _worker_run(self, params: dict[str, Any]) -> None:
+        """Background thread logic running Playwright and saving Excel."""
+        serials: list[str] = params["serials"]
+        headful: bool = params["headful"]
+        skip_verified: bool = params["skip_verified"]
+        delay: float = params["delay"]
+        offset: float = params["offset"]
+        output_path: Path = params["output_path"]
+
+        self.msg_queue.put(("LOG", ("info", f"Started check batch. Total target serials: {len(serials)}")))
+
+        # Check skip verified
+        if skip_verified and output_path.exists() and HAS_OPENPYXL:
+            try:
+                wb = openpyxl.load_workbook(output_path, data_only=True)
+                ws = wb.active
+                headers = [cell.value for cell in ws[1]] if ws.max_row >= 1 else []
+                stat_col = headers.index("Check Status") if "Check Status" in headers else -1
+                sn_col = headers.index("Serial / IMEI") if "Serial / IMEI" in headers else 0
+                found_sns = set()
+                for row in ws.iter_rows(min_row=2, values_only=True):
+                    if row and stat_col != -1 and len(row) > stat_col and row[stat_col] == "Found":
+                        found_sns.add(str(row[sn_col]).strip())
+                original_len = len(serials)
+                serials = [s for s in serials if s not in found_sns]
+                skipped_count = original_len - len(serials)
+                if skipped_count > 0:
+                    self.msg_queue.put(("LOG", ("info", f"Skipped {skipped_count} serials already marked as 'Found' in Excel.")))
+            except Exception as e:
+                self.msg_queue.put(("LOG", ("warning", f"Could not check existing records: {e}")))
+
+        total = len(serials)
+        if total == 0:
+            self.msg_queue.put(("LOG", ("success", "All serials are already verified in Excel!")))
+            self.msg_queue.put(("FINISHED", {"total": 0, "processed": 0}))
+            return
+
+        self.msg_queue.put(("LOG", ("info", f"Processing {total} device(s) (Browser mode: {'Visible' if headful else 'Headless'})...")))
+
+        results_accum: list[dict[str, Any]] = []
+
+        try:
+            with sync_playwright() as p:
+                browser = p.chromium.launch(headless=not headful)
+                context = browser.new_context(
+                    user_agent="Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/122.0.0.0 Safari/537.36",
+                    viewport={"width": 1280, "height": 800},
+                )
+                page = context.new_page()
+
+                for idx, sn in enumerate(serials, start=1):
+                    if self.stop_requested.is_set():
+                        self.msg_queue.put(("LOG", ("warning", f"Batch stopped by user after {idx-1} checks.")))
+                        break
+
+                    pct = int(((idx - 1) / total) * 100)
+                    self.msg_queue.put(("PROGRESS", (pct, f"[{idx}/{total}] Checking {sn}...")))
+
+                    def on_status_cb(msg: str):
+                        self.msg_queue.put(("PROGRESS_STATUS", f"[{idx}/{total}] {sn}: {msg}"))
+
+                    res = check_oppo_serial(page, sn, on_status=on_status_cb, fine_tune_offset=offset)
+                    results_accum.append(res)
+
+                    # Update Excel safely with permission error retry handling
+                    self._safe_save_excel(results_accum, output_path)
+
+                    # Send result to UI
+                    self.msg_queue.put(("ROW_RESULT", res))
+
+                    log_msg = f"[{idx}/{total}] {sn} -> Active: {res.get('is_active')} | Model: {res.get('model_name') or 'N/A'}"
+                    if res.get("is_active") == "Yes":
+                        self.msg_queue.put(("LOG", ("success", log_msg)))
+                    elif res.get("is_active") == "No":
+                        self.msg_queue.put(("LOG", ("warning", log_msg)))
+                    else:
+                        self.msg_queue.put(("LOG", ("info", log_msg)))
+
+                    # Update progress bar
+                    current_pct = int((idx / total) * 100)
+                    self.msg_queue.put(("PROGRESS", (current_pct, f"[{idx}/{total}] Completed {sn}")))
+
+                    # Delay between checks if not last item
+                    if idx < total and not self.stop_requested.is_set():
+                        time.sleep(delay)
+
+                browser.close()
+        except Exception as e:
+            self.msg_queue.put(("LOG", ("error", f"Automation engine error: {e}")))
+            self.msg_queue.put(("POPUP_ERROR", ("Error", f"Automation encountered an error:\n{e}")))
+
+        # Final save
+        if results_accum:
+            self._safe_save_excel(results_accum, output_path)
+
+        self.msg_queue.put(("FINISHED", {"total": total, "processed": len(results_accum)}))
+
+    def _safe_save_excel(self, results: list[dict[str, Any]], output_path: Path) -> None:
+        """Save results to Excel with retry on Windows file lock."""
+        for attempt in range(3):
+            try:
+                save_to_excel(results, output_path, quiet=True)
+                return
+            except PermissionError:
+                if attempt == 0:
+                    self.msg_queue.put(("LOG", ("warning", f"[Notice] {output_path.name} is open in Excel! Please close it to allow saving.")))
+                time.sleep(1.0)
+            except Exception as e:
+                self.msg_queue.put(("LOG", ("error", f"Error saving Excel: {e}")))
+                break
+
+    def _poll_queue(self) -> None:
+        """Process background worker messages and update UI widgets."""
+        while not self.msg_queue.empty():
+            try:
+                msg_type, payload = self.msg_queue.get_nowait()
+            except queue.Empty:
+                break
+
+            if msg_type == "LOG":
+                level, text = payload
+                t_str = datetime.datetime.now().strftime("%H:%M:%S")
+                self.txt_log.insert(tk.END, f"[{t_str}] {text}\n", level)
+                self.txt_log.see(tk.END)
+
+            elif msg_type == "PROGRESS":
+                pct, status_text = payload
+                self.progress_bar.config(value=pct)
+                self.lbl_progress_status.config(text=status_text)
+
+            elif msg_type == "PROGRESS_STATUS":
+                self.lbl_progress_status.config(text=payload)
+
+            elif msg_type == "ROW_RESULT":
+                res = payload
+                sn = res.get("serial", "")
+                act = res.get("is_active", "")
+                act_date = res.get("activation_date", "")
+                act_comment = res.get("activation_comment", "")
+                model = res.get("model_name", "")
+                color = res.get("color", "")
+                status = res.get("status", "")
+                t_now = datetime.datetime.now().strftime("%H:%M:%S")
+
+                tag = "tag_info"
+                if act == "Yes":
+                    tag = "tag_yes"
+                    self.stat_activated.set(self.stat_activated.get() + 1)
+                elif act == "No":
+                    tag = "tag_no"
+                    self.stat_not_activated.set(self.stat_not_activated.get() + 1)
+                elif act in ["Pending", "Syncing"]:
+                    tag = "tag_pending"
+                    self.stat_pending.set(self.stat_pending.get() + 1)
+                elif status in ["Captcha Failed", "Error", "Not Found"]:
+                    tag = "tag_fail"
+                    self.stat_failed.set(self.stat_failed.get() + 1)
+
+                self.stat_processed.set(self.stat_processed.get() + 1)
+
+                # Add to tree
+                self.tree.insert(
+                    "",
+                    0,
+                    values=(sn, act, act_date, act_comment, model, color, status, t_now),
+                    tags=(tag,),
+                )
+
+            elif msg_type == "FINISHED":
+                self.is_running = False
+                self.btn_start.config(state=tk.NORMAL, bg=COLOR_SUCCESS)
+                self.btn_stop.config(state=tk.DISABLED)
+                self.lbl_progress_status.config(text="Verification completed successfully! Click 'Open Excel' to view report.")
+                self.progress_bar.config(value=100)
+                self.log("Batch finished. Excel spreadsheet updated.", "success")
+                messagebox.showinfo("Done", f"Verification completed!\nProcessed {payload.get('processed', 0)} of {payload.get('total', 0)} devices.")
+
+            elif msg_type == "POPUP_INFO":
+                title, msg = payload
+                messagebox.showinfo(title, msg)
+
+            elif msg_type == "POPUP_ERROR":
+                title, msg = payload
+                messagebox.showerror(title, msg)
+
+        # Reschedule next poll
+        self.root.after(80, self._poll_queue)
+
+    def _on_tree_row_double_click(self, event: Any) -> None:
+        """Display detail dialog when user double clicks a table record."""
+        selected = self.tree.selection()
+        if not selected:
+            return
+        values = self.tree.item(selected[0], "values")
+        if not values:
+            return
+
+        detail_win = tk.Toplevel(self.root)
+        detail_win.title(f"Device Details - {values[0]}")
+        detail_win.geometry("520x420")
+        detail_win.minsize(450, 350)
+        detail_win.configure(bg=COLOR_CARD_BG)
+
+        lbl_head = tk.Label(detail_win, text=f"OPPO Device Record: {values[0]}", font=("Segoe UI", 11, "bold"), bg=COLOR_CARD_BG, fg=COLOR_PRIMARY)
+        lbl_head.pack(anchor=tk.W, padx=16, pady=(14, 8))
+
+        fields = [
+            ("Serial / IMEI:", values[0]),
+            ("Active Status:", values[1]),
+            ("Activation Date:", values[2]),
+            ("Activation Comment:", values[3]),
+            ("Model Name:", values[4]),
+            ("Color:", values[5]),
+            ("Check Status:", values[6]),
+            ("Checked Timestamp:", values[7]),
+        ]
+
+        f_frame = tk.Frame(detail_win, bg=COLOR_CARD_BG)
+        f_frame.pack(fill=tk.BOTH, expand=True, padx=16, pady=4)
+
+        for idx, (lbl_txt, val_txt) in enumerate(fields):
+            row_f = tk.Frame(f_frame, bg=COLOR_CARD_BG)
+            row_f.pack(fill=tk.X, pady=4)
+
+            tk.Label(row_f, text=lbl_txt, width=18, anchor=tk.W, font=("Segoe UI", 9, "bold"), bg=COLOR_CARD_BG, fg=COLOR_TEXT_MAIN).pack(side=tk.LEFT)
+
+            val_lbl = tk.Label(row_f, text=str(val_txt), anchor=tk.W, justify=tk.LEFT, wraplength=320, font=("Segoe UI", 9), bg=COLOR_CARD_BG, fg=COLOR_TEXT_MUTED)
+            val_lbl.pack(side=tk.LEFT, fill=tk.X, expand=True)
+
+        btn_close = tk.Button(detail_win, text="Close", font=("Segoe UI", 9), relief=tk.FLAT, bg="#EAEAEA", command=detail_win.destroy, padx=12, pady=4)
+        btn_close.pack(side=tk.BOTTOM, pady=12)
+
+
+def main() -> None:
+    root = tk.Tk()
+    app = OppoCheckerGUI(root)
+    root.mainloop()
+
+
+if __name__ == "__main__":
+    main()

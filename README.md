@@ -131,6 +131,50 @@ The script writes results in real time to `oppo_results.xlsx`. If interrupted, v
 
 ---
 
+## 🖥️ Windows Desktop GUI (For Customers & Easy Use)
+
+A user-friendly graphical interface is included so non-technical users and customers can run verifications without using the command line:
+
+![OPPO Verification GUI](https://raw.githubusercontent.com/eslammohamedr/Captcha-scroll-pass/main/gui_preview.png)
+
+### Features of the GUI:
+- **One-Click Launch:** Simply double-click `run_gui.bat` or `OPPO_Checker.bat`.
+- **Flexible Input:** Choose a file (`.txt`, `.xlsx`, `.csv`) or paste serials directly into the multiline text box.
+- **Full Automation Controls:**
+  - Toggle visible browser (Headful) or background (Headless).
+  - Skip already verified records in Excel.
+  - Configure delay, batch limits, and manual slider nudge offsets.
+- **Live Monitoring:**
+  - Real-time stat summary cards (Total, Processed, Activated, Not Activated, Pending, Errors).
+  - Smooth progress bar (0% - 100%) with status updates.
+  - Interactive live results table with color coding. Double-click any row to view full details.
+  - Integrated activity log console with auto-scroll.
+- **One-Click Excel Viewer:** Open `oppo_results.xlsx` instantly with the "📊 Open Excel" button.
+- **Automated Browser Setup:** "⚙ Setup Browser" button to download and configure Playwright Chromium in one click.
+
+### How to Run the GUI:
+```cmd
+# Double click the batch file:
+run_gui.bat
+
+# Or run directly via Python:
+python gui_app.py
+```
+
+### Sending to Customers:
+1. **Option A (Simplest - Portable Folder):**
+   - Zip the project folder and send it to your customer.
+   - The customer only needs Python installed (with "Add Python to PATH" checked).
+   - When they double-click `run_gui.bat` or `OPPO_Checker.bat`, it will automatically verify dependencies, install Playwright Chromium, and open the app.
+2. **Option B (Standalone .EXE via PyInstaller):**
+   - Install PyInstaller: `pip install pyinstaller`
+   - Build single executable:
+     ```cmd
+     pyinstaller --noconsole --onefile --name "OPPO_Checker" gui_app.py
+     ```
+
+---
+
 ## 🛠 Standalone Computer Vision Solver (`slider_cv.py`)
 
 You can test the computer vision engine directly on saved CAPTCHA images:
@@ -149,6 +193,6 @@ python slider_cv.py --bg background.png --output detected_hole.png
 
 - **PermissionError: [WinError 32]:**
   - **Cause:** `oppo_results.xlsx` is currently open in Microsoft Excel on Windows, which locks the file against writing.
-  - **Solution:** Close Excel before executing the script.
+  - **Solution:** Close Excel or click "Retry". The GUI automatically pauses and retries saving so data is never lost.
 - **Connection Latency:**
-  - If your internet connection is slow, increase the delay using `--delay 3.0` or `--delay 4.0`.
+  - If your internet connection is slow, increase the delay using `--delay 3.0` or `--delay 4.0` (or adjust the delay slider in the GUI).
