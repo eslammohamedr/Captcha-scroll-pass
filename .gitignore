@@ -37,3 +37,9 @@ build/
 dist/
 *.spec
 *.exe
+
+# Session export backups and system files
+oppo_results_*.csv
+oppo_results_*.xlsx
+nul
+

@@ -36,8 +36,8 @@ if sys.platform == "win32":
         except Exception:
             pass
 
-# Ensure Playwright finds shared system browsers (CRUCIAL for PyInstaller frozen EXE)
-if "PLAYWRIGHT_BROWSERS_PATH" not in os.environ or not os.environ["PLAYWRIGHT_BROWSERS_PATH"]:
+# Ensure Playwright finds shared system browsers (CRUCIAL for PyInstaller frozen EXE on Windows)
+if sys.platform == "win32" and ("PLAYWRIGHT_BROWSERS_PATH" not in os.environ or not os.environ["PLAYWRIGHT_BROWSERS_PATH"]):
     _local_appdata = os.environ.get("LOCALAPPDATA") or str(Path.home() / "AppData" / "Local")
     os.environ["PLAYWRIGHT_BROWSERS_PATH"] = str(Path(_local_appdata) / "ms-playwright")
 
@@ -131,6 +131,15 @@ class OppoCheckerGUI:
         self.stat_not_activated = tk.IntVar(value=0)
         self.stat_pending = tk.IntVar(value=0)
         self.stat_failed = tk.IntVar(value=0)
+        self.stat_timer = tk.StringVar(value="00:00:00")
+
+        # Timer calculation state
+        self.timer_start_time: float | None = None
+        self.timer_elapsed_seconds: float = 0.0
+        self.timer_running: bool = False
+        self._last_timer_sec: int = -1
+        self._current_processed: int = 0
+        self._current_total: int = 0
 
         # Run mode: "continue" (Resume/update existing) or "fresh" (Brand new session & file)
         self.var_run_mode = tk.StringVar(value="continue")
@@ -138,6 +147,7 @@ class OppoCheckerGUI:
         # Settings variables
         self.var_headful = tk.BooleanVar(value=True)       # Default: Chrome visible so user watches live solving!
         self.var_skip_verified = tk.BooleanVar(value=True) # Default: Skip already verified records
+        self.var_threads = tk.IntVar(value=3)              # Default: 3 parallel worker threads
         self.var_delay = tk.DoubleVar(value=2.0)
         self.var_limit = tk.StringVar(value="")
         self.var_offset = tk.DoubleVar(value=0.0)
@@ -148,6 +158,9 @@ class OppoCheckerGUI:
 
         # Build UI layout
         self._build_ui()
+
+        # Handle clean window close
+        self.root.protocol("WM_DELETE_WINDOW", self.on_closing)
 
         # Start periodic queue polling
         self.root.after(80, self._poll_queue)
@@ -180,6 +193,7 @@ class OppoCheckerGUI:
         style.configure("StatNumberWarning.TLabel", font=("Segoe UI", 17, "bold"), foreground="#F2CC60", background=DARK_BG_SURFACE)
         style.configure("StatNumberInfo.TLabel", font=("Segoe UI", 17, "bold"), foreground="#79C0FF", background=DARK_BG_SURFACE)
         style.configure("StatNumberDanger.TLabel", font=("Segoe UI", 17, "bold"), foreground="#FFA198", background=DARK_BG_SURFACE)
+        style.configure("StatNumberTimer.TLabel", font=("Segoe UI", 16, "bold"), foreground="#58A6FF", background=DARK_BG_SURFACE)
         style.configure("StatLabel.TLabel", font=("Segoe UI", 8), foreground=DARK_TEXT_MUTED, background=DARK_BG_SURFACE)
 
         # Notebook tabs (Dark Mode)
@@ -334,6 +348,7 @@ class OppoCheckerGUI:
         self._create_stat_card(stats_frame, "Not Activated (No)", self.stat_not_activated, "StatNumberWarning.TLabel", 3)
         self._create_stat_card(stats_frame, "Pending Sync", self.stat_pending, "StatNumberInfo.TLabel", 4)
         self._create_stat_card(stats_frame, "Errors / Failed", self.stat_failed, "StatNumberDanger.TLabel", 5)
+        self._create_stat_card(stats_frame, "⏱ Elapsed Time", self.stat_timer, "StatNumberTimer.TLabel", 6)
 
         # Split pane (Left: Input & Controls, Right: Table & Logs)
         main_split = tk.PanedWindow(self.root, orient=tk.HORIZONTAL, bg=DARK_BORDER, sashwidth=4, bd=0)
@@ -352,7 +367,7 @@ class OppoCheckerGUI:
 
         self._build_right_panel(right_container)
 
-    def _create_stat_card(self, parent: tk.Widget, title: str, variable: tk.IntVar, style_name: str, col: int) -> None:
+    def _create_stat_card(self, parent: tk.Widget, title: str, variable: tk.IntVar | tk.StringVar, style_name: str, col: int) -> None:
         card = tk.Frame(parent, bg=DARK_BG_SURFACE, bd=0, highlightthickness=1, highlightbackground=DARK_BORDER)
         card.grid(row=0, column=col, sticky="nsew", padx=3, pady=2)
         parent.grid_columnconfigure(col, weight=1)
@@ -592,6 +607,36 @@ class OppoCheckerGUI:
         )
         self.chk_skip.pack(anchor=tk.W, padx=8, pady=3)
 
+        # Parallel Threads (Concurrency)
+        threads_row = tk.Frame(settings_box, bg=DARK_BG_SURFACE_ALT)
+        threads_row.pack(fill=tk.X, padx=8, pady=4)
+        tk.Label(threads_row, text="⚡ Parallel Threads:", font=("Segoe UI", 9, "bold"), bg=DARK_BG_SURFACE_ALT, fg="#79C0FF").pack(side=tk.LEFT)
+        spn_threads = tk.Spinbox(
+            threads_row,
+            from_=1,
+            to=6,
+            increment=1,
+            textvariable=self.var_threads,
+            width=5,
+            font=("Segoe UI", 9, "bold"),
+            bg=DARK_INPUT_BG,
+            fg="#79C0FF",
+            buttonbackground=DARK_BG_SURFACE,
+            relief=tk.FLAT,
+        )
+        spn_threads.pack(side=tk.RIGHT)
+
+        lbl_threads_hint = tk.Label(
+            settings_box,
+            text="Recommended: 2 - 3 threads (fast & stable). ⚠️ More than 4 threads triggers OPPO/Dingxiang server rate-limiting and captcha rejections.",
+            font=("Segoe UI", 8),
+            bg=DARK_BG_SURFACE_ALT,
+            fg="#F2CC60",
+            wraplength=310,
+            justify=tk.LEFT,
+        )
+        lbl_threads_hint.pack(anchor=tk.W, padx=8, pady=(0, 4))
+
         # Delay spinbox
         delay_row = tk.Frame(settings_box, bg=DARK_BG_SURFACE_ALT)
         delay_row.pack(fill=tk.X, padx=8, pady=4)
@@ -756,15 +801,28 @@ class OppoCheckerGUI:
         progress_box = tk.Frame(parent, bg=DARK_BG_SURFACE, padx=14, pady=10)
         progress_box.pack(side=tk.TOP, fill=tk.X)
 
+        progress_header = tk.Frame(progress_box, bg=DARK_BG_SURFACE)
+        progress_header.pack(fill=tk.X, pady=(0, 4))
+
         self.lbl_progress_status = tk.Label(
-            progress_box,
+            progress_header,
             text="Ready. Choose run mode and click 'START VERIFICATION'.",
             font=("Segoe UI", 9, "bold"),
             bg=DARK_BG_SURFACE,
             fg=DARK_TEXT_PRIMARY,
             anchor=tk.W,
         )
-        self.lbl_progress_status.pack(fill=tk.X, pady=(0, 4))
+        self.lbl_progress_status.pack(side=tk.LEFT, fill=tk.X, expand=True)
+
+        self.lbl_timer_info = tk.Label(
+            progress_header,
+            text="⏱ 00:00:00",
+            font=("Segoe UI", 9, "bold"),
+            bg=DARK_BG_SURFACE,
+            fg=DARK_ACCENT_BLUE,
+            anchor=tk.E,
+        )
+        self.lbl_timer_info.pack(side=tk.RIGHT, padx=(8, 0))
 
         self.progress_bar = ttk.Progressbar(
             progress_box,
@@ -1218,13 +1276,18 @@ class OppoCheckerGUI:
             return
 
         try:
-            os.startfile(str(xlsx_path))
+            if sys.platform == "win32":
+                os.startfile(str(xlsx_path))
+            elif sys.platform == "darwin":
+                subprocess.Popen(["open", str(xlsx_path)])
+            else:
+                subprocess.Popen(["xdg-open", str(xlsx_path)])
             self.log(f"Opened Excel report: {xlsx_path}", "success")
         except Exception as e:
             messagebox.showerror("Open File Error", f"Could not open file in Excel:\n{e}")
 
     def open_csv_file(self) -> None:
-        """Open the companion CSV spreadsheet with default Windows app."""
+        """Open the companion CSV spreadsheet with default app."""
         p = Path(self.var_output_path.get()).resolve()
         csv_path = p.with_suffix(".csv")
         if not csv_path.exists():
@@ -1232,7 +1295,12 @@ class OppoCheckerGUI:
             return
 
         try:
-            os.startfile(str(csv_path))
+            if sys.platform == "win32":
+                os.startfile(str(csv_path))
+            elif sys.platform == "darwin":
+                subprocess.Popen(["open", str(csv_path)])
+            else:
+                subprocess.Popen(["xdg-open", str(csv_path)])
             self.log(f"Opened CSV report: {csv_path}", "success")
         except Exception as e:
             messagebox.showerror("Open File Error", f"Could not open CSV file:\n{e}")
@@ -1286,6 +1354,14 @@ class OppoCheckerGUI:
 
         self.stop_requested.clear()
         self.is_running = True
+        self.timer_start_time = time.time()
+        self.timer_elapsed_seconds = 0.0
+        self.timer_running = True
+        self._last_timer_sec = -1
+        self._current_processed = 0
+        self._current_total = len(serials)
+        self.stat_timer.set("00:00:00")
+        self.lbl_timer_info.config(text="⏱ Elapsed: 00:00:00", fg=DARK_ACCENT_BLUE)
         self.btn_start.config(state=tk.DISABLED, bg="#484F58")
         self.btn_stop.config(state=tk.NORMAL)
         self.progress_bar.config(value=0)
@@ -1297,6 +1373,7 @@ class OppoCheckerGUI:
             "fresh": is_fresh,
             "delay": self.var_delay.get(),
             "offset": self.var_offset.get(),
+            "threads": max(1, min(8, self.var_threads.get())),
             "output_path": Path(self.var_output_path.get()),
         }
 
@@ -1309,21 +1386,66 @@ class OppoCheckerGUI:
             return
         self.log("Stopping... Finishing current device operation safely.", "warning")
         self.lbl_progress_status.config(text="Stopping... Please wait for current device to finish.")
+        self.lbl_timer_info.config(text=f"⏱ Stopping... ({self.stat_timer.get()})", fg="#F2CC60")
         self.stop_requested.set()
         self.btn_stop.config(state=tk.DISABLED)
 
+    def _update_timer_display(self, now: float | None = None) -> None:
+        """Update live elapsed timer, estimated time remaining (ETA), and processing speed."""
+        if self.timer_start_time is None:
+            return
+
+        if now is None:
+            now = time.time()
+
+        if self.timer_running:
+            elapsed = max(0.0, now - self.timer_start_time)
+            self.timer_elapsed_seconds = elapsed
+        else:
+            elapsed = self.timer_elapsed_seconds
+
+        hours = int(elapsed // 3600)
+        minutes = int((elapsed % 3600) // 60)
+        seconds = int(elapsed % 60)
+        time_str = f"{hours:02d}:{minutes:02d}:{seconds:02d}"
+
+        self.stat_timer.set(time_str)
+
+        proc = getattr(self, "_current_processed", 0)
+        tot = getattr(self, "_current_total", 0)
+
+        if self.timer_running:
+            timer_text = f"⏱ Elapsed: {time_str}"
+            if proc > 0 and tot > proc and elapsed >= 3:
+                sec_per_item = elapsed / proc
+                rem_sec = int(sec_per_item * (tot - proc))
+                rem_h = int(rem_sec // 3600)
+                rem_m = int((rem_sec % 3600) // 60)
+                rem_s = int(rem_sec % 60)
+                eta_str = f"{rem_h:02d}:{rem_m:02d}:{rem_s:02d}" if rem_h > 0 else f"{rem_m:02d}:{rem_s:02d}"
+                timer_text += f"  |  ETA: {eta_str}  (~{sec_per_item:.1f}s/dev)"
+            elif proc > 0 and elapsed >= 2:
+                sec_per_item = elapsed / proc
+                timer_text += f"  (~{sec_per_item:.1f}s/dev)"
+            self.lbl_timer_info.config(text=timer_text, fg=DARK_ACCENT_BLUE)
+        else:
+            speed_str = ""
+            if proc > 0 and elapsed > 0:
+                speed_str = f"  (~{elapsed / proc:.1f}s/dev)"
+            self.lbl_timer_info.config(text=f"⏱ Finished in: {time_str}{speed_str}", fg="#7EE787")
+
     def _worker_run(self, params: dict[str, Any]) -> None:
-        """Background thread logic running Playwright and saving Excel/CSV."""
+        """Background coordinator running Playwright across multiple parallel worker threads."""
         serials: list[str] = params["serials"]
         headful: bool = params["headful"]
         skip_verified: bool = params["skip_verified"]
         fresh_mode: bool = params["fresh"]
         delay: float = params["delay"]
         offset: float = params["offset"]
+        requested_threads: int = params.get("threads", 3)
         output_path: Path = params["output_path"]
 
         mode_str = "FRESH RUN" if fresh_mode else "CONTINUE RUN"
-        self.msg_queue.put(("LOG", ("info", f"Started [{mode_str}]. Target serials: {len(serials)} | Browser: {'VISIBLE (Watch Live)' if headful else 'Background Headless'}")))
 
         # Check skip verified if continuing
         if skip_verified and not fresh_mode and output_path.exists() and HAS_OPENPYXL:
@@ -1351,76 +1473,144 @@ class OppoCheckerGUI:
             self.msg_queue.put(("FINISHED", {"total": 0, "processed": 0}))
             return
 
-        results_accum: list[dict[str, Any]] = []
+        num_workers = max(1, min(requested_threads, total))
+        self.msg_queue.put(("LOG", ("info", f"Started [{mode_str}]. Target serials: {total} | Parallel Workers: {num_workers} | Browser: {'VISIBLE (Watch Live)' if headful else 'Background Headless'}")))
 
-        try:
-            with sync_playwright() as p:
-                launch_args = ["--start-maximized"] if headful else []
-                browser = None
-                try:
-                    browser = p.chromium.launch(headless=not headful, args=launch_args)
-                except Exception as e_chromium:
-                    self.msg_queue.put(("LOG", ("warning", f"Bundled Chromium notice: {e_chromium}. Trying Microsoft Edge engine...")))
+        work_queue: queue.Queue[tuple[int, str]] = queue.Queue()
+        for idx, sn in enumerate(serials, start=1):
+            work_queue.put((idx, sn))
+
+        order_map = {sn: i for i, sn in enumerate(serials)}
+        results_dict: dict[str, dict[str, Any]] = {}
+        save_lock = threading.Lock()
+        completed_count = [0]
+
+        def _worker_thread_func(worker_id: int) -> None:
+            """Individual worker thread managing its own Playwright browser and processing queue."""
+            try:
+                with sync_playwright() as p:
+                    launch_args = ["--start-maximized"] if headful else []
+                    browser = None
                     try:
-                        browser = p.chromium.launch(channel="msedge", headless=not headful, args=launch_args)
-                        self.msg_queue.put(("LOG", ("info", "Connected successfully using Microsoft Edge Chromium engine.")))
-                    except Exception:
+                        browser = p.chromium.launch(headless=not headful, args=launch_args)
+                    except Exception as e_chromium:
                         try:
-                            browser = p.chromium.launch(channel="chrome", headless=not headful, args=launch_args)
-                            self.msg_queue.put(("LOG", ("info", "Connected successfully using Google Chrome engine.")))
+                            browser = p.chromium.launch(channel="msedge", headless=not headful, args=launch_args)
                         except Exception:
-                            raise e_chromium
+                            try:
+                                browser = p.chromium.launch(channel="chrome", headless=not headful, args=launch_args)
+                            except Exception:
+                                self.msg_queue.put(("LOG", ("error", f"[Worker #{worker_id}] Launch failed: {e_chromium}")))
+                                return
 
-                context = browser.new_context(
-                    user_agent="Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/122.0.0.0 Safari/537.36",
-                    viewport={"width": 1280, "height": 820},
-                )
-                page = context.new_page()
+                    context = browser.new_context(
+                        user_agent="Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/122.0.0.0 Safari/537.36",
+                        viewport={"width": 1280, "height": 820},
+                    )
+                    page = context.new_page()
 
-                for idx, sn in enumerate(serials, start=1):
-                    if self.stop_requested.is_set():
-                        self.msg_queue.put(("LOG", ("warning", f"Batch stopped by user after {idx-1} checks.")))
-                        break
+                    while not self.stop_requested.is_set():
+                        try:
+                            idx, sn = work_queue.get_nowait()
+                        except queue.Empty:
+                            break
 
-                    pct = int(((idx - 1) / total) * 100)
-                    self.msg_queue.put(("PROGRESS", (pct, f"[{idx}/{total}] Checking {sn}...")))
+                        w_tag = f"[W#{worker_id}]"
 
-                    def on_status_cb(msg: str):
-                        self.msg_queue.put(("PROGRESS_STATUS", f"[{idx}/{total}] {sn}: {msg}"))
+                        def on_status_cb(msg: str):
+                            self.msg_queue.put(("PROGRESS_STATUS", f"{w_tag} [{idx}/{total}] {sn}: {msg}"))
 
-                    res = check_oppo_serial(page, sn, on_status=on_status_cb, fine_tune_offset=offset)
-                    results_accum.append(res)
+                        self.msg_queue.put(("PROGRESS_STATUS", f"{w_tag} [{idx}/{total}] Checking {sn}..."))
 
-                    # Save to Excel & CSV with in-place row update
-                    summary = self._safe_save_excel(results_accum, output_path, fresh=fresh_mode)
+                        try:
+                            res = check_oppo_serial(page, sn, on_status=on_status_cb, fine_tune_offset=offset)
+                        except Exception as exc:
+                            res = {
+                                "serial": sn,
+                                "is_active": "Unknown",
+                                "activation_date": "",
+                                "activation_comment": "",
+                                "model_name": "",
+                                "specs": "",
+                                "color": "",
+                                "certified_model": "",
+                                "region": "",
+                                "warranty_end": "",
+                                "status": "Error",
+                                "raw_msg": str(exc),
+                            }
 
-                    # Send result to UI with updated summary counts
-                    self.msg_queue.put(("ROW_RESULT", (res, summary, idx, total)))
+                        # Auto-retry once on transient Captcha Failure or Network Error
+                        if res.get("status") in ["Captcha Failed", "Error"] and not self.stop_requested.is_set():
+                            self.msg_queue.put(("LOG", ("warning", f"{w_tag} [{idx}/{total}] {sn} had {res.get('status')}. Retrying in 2s...")))
+                            time.sleep(2.0)
+                            try:
+                                res_retry = check_oppo_serial(page, sn, on_status=on_status_cb, fine_tune_offset=offset)
+                                if res_retry.get("status") == "Found":
+                                    res = res_retry
+                            except Exception:
+                                pass
 
-                    log_msg = f"[{idx}/{total}] {sn} -> Active: {res.get('is_active')} | Model: {res.get('model_name') or 'N/A'}"
-                    if res.get("is_active") == "Yes":
-                        self.msg_queue.put(("LOG", ("success", log_msg)))
-                    elif res.get("is_active") == "No":
-                        self.msg_queue.put(("LOG", ("warning", log_msg)))
-                    else:
-                        self.msg_queue.put(("LOG", ("info", log_msg)))
+                        with save_lock:
+                            results_dict[sn] = res
+                            # Keep rows in original serial order when saving to file
+                            ordered_results = sorted(
+                                results_dict.values(),
+                                key=lambda r: order_map.get(str(r.get("serial", "")).strip(), 999999),
+                            )
+                            summary = self._safe_save_excel(ordered_results, output_path, fresh=fresh_mode)
+                            completed_count[0] += 1
+                            current_done = completed_count[0]
 
-                    current_pct = int((idx / total) * 100)
-                    self.msg_queue.put(("PROGRESS", (current_pct, f"[{idx}/{total}] Completed {sn}")))
+                        current_pct = int((current_done / total) * 100)
+                        self.msg_queue.put(("ROW_RESULT", (res, summary, current_done, total)))
+                        self.msg_queue.put(("PROGRESS", (current_pct, f"{w_tag} [{current_done}/{total}] Completed {sn}")))
 
-                    if idx < total and not self.stop_requested.is_set():
-                        time.sleep(delay)
+                        log_msg = f"{w_tag} [{current_done}/{total}] {sn} -> Active: {res.get('is_active')} | Model: {res.get('model_name') or 'N/A'}"
+                        if res.get("is_active") == "Yes":
+                            self.msg_queue.put(("LOG", ("success", log_msg)))
+                        elif res.get("is_active") == "No":
+                            self.msg_queue.put(("LOG", ("warning", log_msg)))
+                        else:
+                            self.msg_queue.put(("LOG", ("info", log_msg)))
 
-                browser.close()
-        except Exception as e:
-            self.msg_queue.put(("LOG", ("error", f"Automation engine error: {e}")))
-            self.msg_queue.put(("POPUP_ERROR", ("Error", f"Automation encountered an error:\n{e}")))
+                        work_queue.task_done()
+
+                        if not self.stop_requested.is_set() and delay > 0:
+                            time.sleep(delay)
+
+                    try:
+                        browser.close()
+                    except Exception:
+                        pass
+            except Exception as e_outer:
+                self.msg_queue.put(("LOG", ("error", f"[Worker #{worker_id}] Thread error: {e_outer}")))
+
+        # Launch workers with slight staggered start
+        workers = []
+        for w_id in range(1, num_workers + 1):
+            if self.stop_requested.is_set():
+                break
+            t = threading.Thread(target=_worker_thread_func, args=(w_id,), daemon=True)
+            workers.append(t)
+            t.start()
+            if w_id < num_workers:
+                time.sleep(1.0)  # 1s stagger between thread browser launches
+
+        # Wait for all workers to finish
+        for t in workers:
+            t.join()
 
         # Final save
-        if results_accum:
-            self._safe_save_excel(results_accum, output_path, fresh=fresh_mode)
+        if results_dict:
+            with save_lock:
+                ordered_results = sorted(
+                    results_dict.values(),
+                    key=lambda r: order_map.get(str(r.get("serial", "")).strip(), 999999),
+                )
+                self._safe_save_excel(ordered_results, output_path, fresh=fresh_mode)
 
-        self.msg_queue.put(("FINISHED", {"total": total, "processed": len(results_accum)}))
+        self.msg_queue.put(("FINISHED", {"total": total, "processed": completed_count[0]}))
 
     def _safe_save_excel(self, results: list[dict[str, Any]], output_path: Path, fresh: bool = False) -> dict[str, Any]:
         """Save results to Excel/CSV with retry on Windows file lock, returning summary stats."""
@@ -1439,6 +1629,16 @@ class OppoCheckerGUI:
 
     def _poll_queue(self) -> None:
         """Process background worker messages and update UI widgets."""
+        if not self.root.winfo_exists():
+            return
+
+        now = time.time()
+        if self.timer_running and self.timer_start_time is not None:
+            sec_int = int(now - self.timer_start_time)
+            if sec_int != self._last_timer_sec:
+                self._last_timer_sec = sec_int
+                self._update_timer_display(now)
+
         while not self.msg_queue.empty():
             try:
                 msg_type, payload = self.msg_queue.get_nowait()
@@ -1461,6 +1661,10 @@ class OppoCheckerGUI:
 
             elif msg_type == "ROW_RESULT":
                 res, summary, idx, total_batch = payload
+                self._current_processed = idx
+                self._current_total = total_batch
+                self._update_timer_display()
+
                 sn = res.get("serial", "")
                 if sn:
                     self.sheet_records[sn] = res
@@ -1481,22 +1685,58 @@ class OppoCheckerGUI:
 
             elif msg_type == "FINISHED":
                 self.is_running = False
+                self.timer_running = False
+                if self.timer_start_time is not None:
+                    self.timer_elapsed_seconds = max(0.0, time.time() - self.timer_start_time)
+                self._update_timer_display()
+
                 self.btn_start.config(state=tk.NORMAL, bg=DARK_BTN_GREEN)
                 self.btn_stop.config(state=tk.DISABLED)
-                self.lbl_progress_status.config(text="Verification completed successfully! Click 'Open Excel' or 'Open CSV' to view report.")
+
+                hours = int(self.timer_elapsed_seconds // 3600)
+                minutes = int((self.timer_elapsed_seconds % 3600) // 60)
+                seconds = int(self.timer_elapsed_seconds % 60)
+                time_str = f"{hours:02d}:{minutes:02d}:{seconds:02d}"
+
+                proc_count = payload.get('processed', 0)
+                tot_count = payload.get('total', 0)
+                avg_info = f" (~{self.timer_elapsed_seconds / max(1, proc_count):.1f}s/dev)" if proc_count > 0 else ""
+
+                self.lbl_progress_status.config(text=f"Verification completed in {time_str}! Click 'Open Excel' or 'Open CSV' to view report.")
                 self.progress_bar.config(value=100)
-                self.log("Batch finished. Excel and CSV files updated successfully.", "success")
-                messagebox.showinfo("Done", f"Verification completed!\nProcessed {payload.get('processed', 0)} of {payload.get('total', 0)} devices.")
+                self.log(f"Batch finished in {time_str}{avg_info}. Excel and CSV files updated successfully.", "success")
+                try:
+                    if self.root.winfo_exists():
+                        messagebox.showinfo(
+                            "Done",
+                            f"Verification completed!\n\n"
+                            f"Processed: {proc_count} of {tot_count} devices\n"
+                            f"Total Time: {time_str}{avg_info}"
+                        )
+                except Exception:
+                    pass
 
             elif msg_type == "POPUP_INFO":
                 title, msg = payload
-                messagebox.showinfo(title, msg)
+                try:
+                    if self.root.winfo_exists():
+                        messagebox.showinfo(title, msg)
+                except Exception:
+                    pass
 
             elif msg_type == "POPUP_ERROR":
                 title, msg = payload
-                messagebox.showerror(title, msg)
+                try:
+                    if self.root.winfo_exists():
+                        messagebox.showerror(title, msg)
+                except Exception:
+                    pass
 
-        self.root.after(80, self._poll_queue)
+        try:
+            if self.root.winfo_exists():
+                self.root.after(80, self._poll_queue)
+        except Exception:
+            pass
 
     def _on_tree_row_double_click(self, event: Any) -> None:
         """Display dark detail dialog when user double clicks a table record."""
@@ -1552,6 +1792,15 @@ class OppoCheckerGUI:
             cursor="hand2",
         )
         btn_close.pack(side=tk.BOTTOM, pady=14)
+
+    def on_closing(self) -> None:
+        """Handle application close safely."""
+        self.stop_requested.set()
+        self.timer_running = False
+        try:
+            self.root.destroy()
+        except Exception:
+            pass
 
 
 def main() -> None:

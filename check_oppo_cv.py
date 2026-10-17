@@ -18,13 +18,15 @@ import random
 import sys
 import os
 import csv
+import queue
+import threading
 import time
 from io import BytesIO
 from pathlib import Path
 from typing import Any
 
-# Ensure Playwright finds shared system browsers (crucial for PyInstaller EXE)
-if "PLAYWRIGHT_BROWSERS_PATH" not in os.environ or not os.environ["PLAYWRIGHT_BROWSERS_PATH"]:
+# Ensure Playwright finds shared system browsers (crucial for PyInstaller EXE on Windows)
+if sys.platform == "win32" and ("PLAYWRIGHT_BROWSERS_PATH" not in os.environ or not os.environ["PLAYWRIGHT_BROWSERS_PATH"]):
     _local_appdata = os.environ.get("LOCALAPPDATA") or str(Path.home() / "AppData" / "Local")
     os.environ["PLAYWRIGHT_BROWSERS_PATH"] = str(Path(_local_appdata) / "ms-playwright")
 
@@ -255,31 +257,55 @@ def solve_dingxiang_captcha_cv(page, max_attempts: int = 7, on_status: Any = Non
             start_x = slider_box["x"] + slider_box["width"] / 2
             start_y = slider_box["y"] + slider_box["height"] / 2
 
-        page.mouse.move(start_x, start_y)
-        time.sleep(random.uniform(0.1, 0.15))
-        page.mouse.down()
-        time.sleep(random.uniform(0.1, 0.15))
-
-        cur_x = start_x
-        step = random.uniform(2.8, 3.8)
-        while True:
-            cur_x += step
-            wobble = random.uniform(-0.5, 0.5)
-            page.mouse.move(cur_x, start_y + wobble)
-            time.sleep(random.uniform(0.008, 0.015))
-
-            sub_pos = page.evaluate("""() => {
+        # Get initial piece position before drag
+        initial_sub_pos = 0.0
+        try:
+            initial_sub_pos = float(page.evaluate("""() => {
                 const sub = document.querySelector('[id*="dx_captcha_basic_sub-slider"]');
                 const canvas = document.querySelector('#dx_captcha_basic_bg_1 canvas');
                 return (sub && canvas) ? (sub.getBoundingClientRect().left - canvas.getBoundingClientRect().left) : 0;
-            }""")
+            }""") or 0.0)
+        except Exception:
+            initial_sub_pos = 0.0
 
-            if sub_pos >= target_hole_css:
-                break
-            if cur_x - start_x > 245:
-                break
+        needed_dist = max(5.0, min(245.0, target_hole_css - initial_sub_pos))
 
-        time.sleep(random.uniform(0.15, 0.25))
+        page.mouse.move(start_x, start_y)
+        time.sleep(random.uniform(0.08, 0.12))
+        page.mouse.down()
+        time.sleep(random.uniform(0.08, 0.12))
+
+        # Human-like smoothstep trajectory (fast acceleration, smooth deceleration at the slot)
+        num_steps = random.randint(24, 32)
+        points = []
+        for i in range(1, num_steps + 1):
+            t = i / num_steps
+            # Smoothstep interpolation: 3*t^2 - 2*t^3
+            factor = 3 * (t ** 2) - 2 * (t ** 3)
+            pt_x = start_x + (needed_dist * factor)
+            pt_y = start_y + random.uniform(-0.5, 0.5)
+            points.append((pt_x, pt_y))
+
+        for pt_x, pt_y in points:
+            page.mouse.move(pt_x, pt_y)
+            time.sleep(random.uniform(0.007, 0.014))
+
+        # Precision micro-trim at target slot (only 1 single DOM query)
+        try:
+            curr_pos = float(page.evaluate("""() => {
+                const sub = document.querySelector('[id*="dx_captcha_basic_sub-slider"]');
+                const canvas = document.querySelector('#dx_captcha_basic_bg_1 canvas');
+                return (sub && canvas) ? (sub.getBoundingClientRect().left - canvas.getBoundingClientRect().left) : 0;
+            }""") or target_hole_css)
+            diff = target_hole_css - curr_pos
+            if abs(diff) > 1.2 and abs(diff) < 20:
+                final_x = points[-1][0] + diff
+                page.mouse.move(final_x, start_y + random.uniform(-0.2, 0.2))
+                time.sleep(random.uniform(0.04, 0.08))
+        except Exception:
+            pass
+
+        time.sleep(random.uniform(0.12, 0.20))
         page.mouse.up()
 
         # Wait for verify response
@@ -735,6 +761,7 @@ def main() -> int:
     parser.add_argument("--skip-found", action="store_true", help="Skip serials that are already successfully verified in output Excel")
     parser.add_argument("--limit", type=int, default=None, help="Limit number of serials to process (optional)")
     parser.add_argument("--adjust", type=float, default=0.0, help="Nudge drag distance in pixels (+ moves right, - moves left, default: 0.0)")
+    parser.add_argument("--threads", type=int, default=1, help="Number of parallel worker browser threads (default: 1)")
     args = parser.parse_args()
 
     identifiers = read_identifiers(args.input)
@@ -760,14 +787,83 @@ def main() -> int:
     if args.limit:
         identifiers = identifiers[: args.limit]
 
-
     if not identifiers:
         print(f"All serials in {args.input} are already verified in {args.output}!")
         return 0
 
+    num_threads = max(1, min(args.threads, len(identifiers)))
     print(f"Loaded {len(identifiers)} serial(s) to check via OpenCV Slider Solver.")
-    print(f"Target Excel output: {args.output}\n")
+    print(f"Parallel threads: {num_threads} | Target Excel output: {args.output}\n")
 
+    if num_threads > 1:
+        # Multi-threaded parallel processing
+        work_queue: queue.Queue[tuple[int, str]] = queue.Queue()
+        for idx, sn in enumerate(identifiers, start=1):
+            work_queue.put((idx, sn))
+
+        results_dict: dict[str, dict[str, Any]] = {}
+        save_lock = threading.Lock()
+        completed_count = [0]
+        order_map = {sn: i for i, sn in enumerate(identifiers)}
+
+        def _cli_worker(worker_id: int) -> None:
+            try:
+                with sync_playwright() as p:
+                    try:
+                        browser = p.chromium.launch(headless=not args.headful)
+                    except Exception:
+                        try:
+                            browser = p.chromium.launch(channel="msedge", headless=not args.headful)
+                        except Exception:
+                            browser = p.chromium.launch(channel="chrome", headless=not args.headful)
+                    context = browser.new_context(
+                        user_agent="Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/122.0.0.0 Safari/537.36",
+                        viewport={"width": 1280, "height": 800},
+                    )
+                    page = context.new_page()
+
+                    while True:
+                        try:
+                            idx, sn = work_queue.get_nowait()
+                        except queue.Empty:
+                            break
+
+                        res = check_oppo_serial(page, sn, fine_tune_offset=args.adjust)
+                        with save_lock:
+                            results_dict[sn] = res
+                            completed_count[0] += 1
+                            done = completed_count[0]
+                            ordered = sorted(results_dict.values(), key=lambda r: order_map.get(str(r.get("serial", "")).strip(), 999999))
+                            save_to_excel(ordered, args.output, quiet=True)
+
+                        print(f"[W{worker_id}] [{done}/{len(identifiers)}] {sn} -> Active: {res.get('is_active')} | Model: {res.get('model_name') or 'N/A'}")
+                        work_queue.task_done()
+                        if args.delay > 0:
+                            time.sleep(args.delay)
+
+                    browser.close()
+            except Exception as exc:
+                print(f"[Worker {worker_id}] Error: {exc}")
+
+        threads = []
+        for w_id in range(1, num_threads + 1):
+            t = threading.Thread(target=_cli_worker, args=(w_id,), daemon=True)
+            threads.append(t)
+            t.start()
+            if w_id < num_threads:
+                time.sleep(1.0)
+
+        for t in threads:
+            t.join()
+
+        ordered_final = sorted(results_dict.values(), key=lambda r: order_map.get(str(r.get("serial", "")).strip(), 999999))
+        save_to_excel(ordered_final, args.output, quiet=False)
+        print("\n" + "=" * 60)
+        print(f"Done! Checked {len(ordered_final)} device(s) across {num_threads} parallel threads. Results written to {args.output}")
+        print("=" * 60)
+        return 0
+
+    # Single-thread execution
     results: list[dict[str, Any]] = []
 
     with sync_playwright() as p:

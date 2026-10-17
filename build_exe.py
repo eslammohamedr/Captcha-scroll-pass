@@ -32,9 +32,9 @@ def build() -> None:
         "--hidden-import",
         "tqdm",
         "--add-data",
-        "check_oppo_cv.py;.",
+        f"check_oppo_cv.py{';' if sys.platform == 'win32' else ':'}.",
         "--add-data",
-        "slider_cv.py;.",
+        f"slider_cv.py{';' if sys.platform == 'win32' else ':'}.",
         "gui_app.py",
     ]
 

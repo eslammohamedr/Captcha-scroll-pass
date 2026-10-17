@@ -1,3 +1,4 @@
+:; exec bash "$(dirname "$0")/run_gui.sh" "$@"
 @echo off
 setlocal enabledelayedexpansion
 chcp 65001 > nul
