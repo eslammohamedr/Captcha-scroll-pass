@@ -51,19 +51,26 @@ document.addEventListener('DOMContentLoaded', () => {
 // --- Tab Switching ---
 function switchTab(tabName) {
   state.currentTab = tabName;
-  const tabs = ['Dashboard', 'Devices', 'Scanner', 'Reports', 'Settings'];
+  const tabs = ['Dashboard', 'Devices', 'Scanner', 'Reports', 'Settings', 'Terminal'];
 
   tabs.forEach(t => {
     const view = document.getElementById(`view${t}`);
     const btn = document.getElementById(`tabBtn_${t}`);
-    if (t === tabName) {
-      view.classList.remove('hidden');
-      btn.classList.add('text-brand-500');
-      btn.classList.remove('text-dark-muted');
-    } else {
-      view.classList.add('hidden');
-      btn.classList.remove('text-brand-500');
-      btn.classList.add('text-dark-muted');
+    if (view) {
+      if (t === tabName) {
+        view.classList.remove('hidden');
+      } else {
+        view.classList.add('hidden');
+      }
+    }
+    if (btn) {
+      if (t === tabName) {
+        btn.classList.add('text-brand-500');
+        btn.classList.remove('text-dark-muted');
+      } else {
+        btn.classList.remove('text-brand-500');
+        btn.classList.add('text-dark-muted');
+      }
     }
   });
 
@@ -73,6 +80,9 @@ function switchTab(tabName) {
     loadDevices();
   } else if (tabName === 'Reports') {
     loadReportsHistory();
+  } else if (tabName === 'Terminal') {
+    loadAgyStatus();
+    startAgyEventStream();
   } else if (tabName !== 'Scanner' && state.cameraStream) {
     stopCamera();
   }
@@ -387,6 +397,7 @@ async function loadGroups() {
     });
 
     html += `<button onclick="openNewGroupPrompt()" class="px-2.5 py-1.5 rounded-lg text-xs font-bold bg-dark-surface border border-dark-border text-brand-500 hover:border-brand-500 whitespace-nowrap">+ Group</button>`;
+    html += `<button onclick="openManageGroupsModal()" class="px-2.5 py-1.5 rounded-lg text-xs font-semibold bg-dark-surface border border-dark-border text-dark-muted hover:text-white whitespace-nowrap" title="Manage Groups">📁 Manage</button>`;
     container.innerHTML = html;
 
     // Populate Group dropdown in Add modal and Scanner
@@ -397,6 +408,7 @@ async function loadGroups() {
     if (scannerSelect) scannerSelect.innerHTML = options;
 
     updateCurrentGroupRunButton();
+    renderManageGroupsList();
   } catch (e) {}
 }
 
@@ -410,15 +422,25 @@ function setFilterGroup(groupName) {
 
 function updateCurrentGroupRunButton() {
   const btn = document.getElementById('btnRunCurrentGroup');
+  const btnDelete = document.getElementById('btnDeleteCurrentGroup');
   if (state.selectedGroup === 'all') {
-    btn.innerHTML = `<span>⚡ Run All Devices</span>`;
+    if (btn) btn.innerHTML = `<span>⚡ Run All Devices</span>`;
+    if (btnDelete) btnDelete.classList.add('hidden');
   } else {
-    btn.innerHTML = `<span>⚡ Run Group '${escapeHtml(state.selectedGroup)}'</span>`;
+    if (btn) btn.innerHTML = `<span>⚡ Run Group '${escapeHtml(state.selectedGroup)}'</span>`;
+    if (btnDelete) {
+      if (state.selectedGroup === 'Default') {
+        btnDelete.classList.add('hidden');
+      } else {
+        btnDelete.classList.remove('hidden');
+        btnDelete.innerHTML = `<span>🗑️ Delete '${escapeHtml(state.selectedGroup)}'</span>`;
+      }
+    }
   }
 }
 
 async function openNewGroupPrompt() {
-  const name = prompt("Enter new group name (e.g. 'Store #2' or 'Batch 2026-10'):");
+  const name = prompt("Enter new group name (e.g. 'testgroup' or 'Store #2'):");
   if (!name || !name.trim()) return;
 
   try {
@@ -437,6 +459,111 @@ async function openNewGroupPrompt() {
     }
   } catch (e) {
     showToast('Failed to create group', 'error');
+  }
+}
+
+// Group Modal & Deletion Management
+function openManageGroupsModal() {
+  const modal = document.getElementById('modalManageGroups');
+  if (modal) {
+    modal.classList.remove('hidden');
+    renderManageGroupsList();
+    const input = document.getElementById('inputNewGroupName');
+    if (input) input.value = '';
+  }
+}
+
+function closeManageGroupsModal() {
+  const modal = document.getElementById('modalManageGroups');
+  if (modal) modal.classList.add('hidden');
+}
+
+function renderManageGroupsList() {
+  const list = document.getElementById('manageGroupsList');
+  if (!list) return;
+  if (!state.groups || state.groups.length === 0) {
+    list.innerHTML = `<p class="text-xs text-dark-muted py-2 text-center">No groups found.</p>`;
+    return;
+  }
+  let html = '';
+  state.groups.forEach(g => {
+    const isDefault = g.name === 'Default';
+    html += `
+      <div class="flex items-center justify-between p-2.5 rounded-lg bg-dark-card border border-dark-border/50 text-xs">
+        <div class="flex items-center space-x-2">
+          <span class="font-bold text-white">${escapeHtml(g.name)}</span>
+          <span class="text-[10px] bg-dark-surface px-2 py-0.5 rounded text-dark-muted font-mono">${g.total_devices} devices</span>
+          ${isDefault ? '<span class="text-[9px] bg-emerald-500/20 text-emerald-400 px-1.5 py-0.5 rounded font-semibold">Protected</span>' : ''}
+        </div>
+        <div>
+          ${isDefault ? '' : `
+            <button onclick="deleteGroupByName('${escapeHtml(g.name)}')" class="bg-red-500/20 hover:bg-red-500/30 text-red-400 px-2.5 py-1 rounded text-xs font-semibold active:scale-95 transition flex items-center space-x-1">
+              <span>🗑️ Delete</span>
+            </button>
+          `}
+        </div>
+      </div>
+    `;
+  });
+  list.innerHTML = html;
+}
+
+async function createGroupFromModal() {
+  const input = document.getElementById('inputNewGroupName');
+  const name = input ? input.value.trim() : '';
+  if (!name) {
+    showToast('Please enter a group name', 'warning');
+    return;
+  }
+  try {
+    const res = await fetch('/api/groups', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ name })
+    });
+    const data = await res.json();
+    if (res.ok) {
+      showToast(`Group '${name}' created!`, 'success');
+      if (input) input.value = '';
+      await loadGroups();
+      renderManageGroupsList();
+    } else {
+      showToast(data.detail || 'Could not create group', 'error');
+    }
+  } catch (e) {
+    showToast('Failed to create group', 'error');
+  }
+}
+
+async function deleteCurrentGroup() {
+  if (state.selectedGroup === 'all' || state.selectedGroup === 'Default') return;
+  await deleteGroupByName(state.selectedGroup);
+}
+
+async function deleteGroupByName(groupName) {
+  if (groupName === 'Default') {
+    showToast("Cannot delete the protected 'Default' group", 'warning');
+    return;
+  }
+  if (!confirm(`Are you sure you want to delete group '${groupName}'?\nAny devices in this group will be safely moved back to 'Default'.`)) {
+    return;
+  }
+  try {
+    const res = await fetch(`/api/groups/${encodeURIComponent(groupName)}`, { method: 'DELETE' });
+    const data = await res.json();
+    if (res.ok) {
+      showToast(data.message, 'success');
+      if (state.selectedGroup === groupName) {
+        state.selectedGroup = 'all';
+      }
+      await loadGroups();
+      await loadDevices();
+      renderManageGroupsList();
+    } else {
+      showToast(data.detail || 'Failed to delete group', 'error');
+    }
+  } catch (e) {
+    showToast('Failed to delete group', 'error');
   }
 }
 
@@ -955,6 +1082,7 @@ async function deleteSelectedDevices() {
 
 // --- Add Devices Modal ---
 let addMode = 'bulk';
+let uploadedFilePreviewData = null;
 
 function openAddModal() {
   document.getElementById('modalAddDevices').classList.remove('hidden');
@@ -962,6 +1090,9 @@ function openAddModal() {
 
 function closeAddModal() {
   document.getElementById('modalAddDevices').classList.add('hidden');
+  const card = document.getElementById('excelColumnSelectorCard');
+  if (card) card.classList.add('hidden');
+  uploadedFilePreviewData = null;
 }
 
 function switchAddMode(mode) {
@@ -981,6 +1112,97 @@ function switchAddMode(mode) {
     tabBulk.className = 'py-2 rounded-lg font-semibold bg-dark-card text-dark-muted';
     secFile.classList.remove('hidden');
     secBulk.classList.add('hidden');
+  }
+}
+
+async function onUploadFileSelected(input) {
+  const card = document.getElementById('excelColumnSelectorCard');
+  const select = document.getElementById('modalExcelColumnSelect');
+  const samplesBox = document.getElementById('excelColumnSamplesPreview');
+  const pill = document.getElementById('excelFileStatsPill');
+
+  if (!input.files || input.files.length === 0) {
+    if (card) card.classList.add('hidden');
+    uploadedFilePreviewData = null;
+    return;
+  }
+
+  const file = input.files[0];
+  const filename = file.name.toLowerCase();
+
+  // If plain .txt file, column selection is not needed
+  if (filename.endsWith('.txt')) {
+    if (card) card.classList.add('hidden');
+    uploadedFilePreviewData = null;
+    return;
+  }
+
+  // Request column inspection preview from backend
+  const formData = new FormData();
+  formData.append('file', file);
+
+  try {
+    const res = await fetch('/api/devices/upload-preview', {
+      method: 'POST',
+      body: formData
+    });
+    if (res.ok) {
+      const data = await res.json();
+      uploadedFilePreviewData = data;
+      if (card) card.classList.remove('hidden');
+
+      if (pill) {
+        pill.innerText = `${data.total_rows || 0} rows · ${data.columns.length} cols`;
+      }
+
+      let html = `<option value="">-- Auto-Detect (${escapeHtml(data.columns[data.detected_index]?.header || 'Recommended')}) --</option>`;
+      data.columns.forEach(col => {
+        const isDetected = (col.index === data.detected_index);
+        html += `<option value="${col.letter}" ${isDetected ? 'selected' : ''}>
+          Col ${col.letter}: "${escapeHtml(col.header)}" ${isDetected ? '★ Auto Detected' : (col.is_candidate ? '✓ Candidate' : '')}
+        </option>`;
+      });
+      if (select) {
+        select.innerHTML = html;
+      }
+      updateColumnSamplePreview();
+    } else {
+      if (card) card.classList.add('hidden');
+      uploadedFilePreviewData = null;
+    }
+  } catch (e) {
+    if (card) card.classList.add('hidden');
+    uploadedFilePreviewData = null;
+  }
+}
+
+function onSelectedColumnChange() {
+  updateColumnSamplePreview();
+}
+
+function updateColumnSamplePreview() {
+  const select = document.getElementById('modalExcelColumnSelect');
+  const samplesBox = document.getElementById('excelColumnSamplesPreview');
+  if (!samplesBox || !uploadedFilePreviewData || !uploadedFilePreviewData.columns) return;
+
+  const chosenVal = select ? select.value : '';
+  let targetCol = null;
+
+  if (chosenVal) {
+    targetCol = uploadedFilePreviewData.columns.find(c => c.letter === chosenVal || String(c.index) === chosenVal || c.header === chosenVal);
+  }
+  if (!targetCol && uploadedFilePreviewData.detected_index !== undefined) {
+    targetCol = uploadedFilePreviewData.columns[uploadedFilePreviewData.detected_index];
+  }
+  if (!targetCol && uploadedFilePreviewData.columns.length > 0) {
+    targetCol = uploadedFilePreviewData.columns[0];
+  }
+
+  if (targetCol && targetCol.samples && targetCol.samples.length > 0) {
+    const samplesStr = targetCol.samples.map(s => escapeHtml(s)).join(', ');
+    samplesBox.innerHTML = `<div><span class="text-white font-semibold">Column ${targetCol.letter} ("${escapeHtml(targetCol.header)}"):</span></div><div class="text-[10px] text-brand-300 mt-0.5 truncate">${samplesStr}</div>`;
+  } else {
+    samplesBox.innerHTML = `<span class="text-dark-muted">No sample values available for this column.</span>`;
   }
 }
 
@@ -1028,7 +1250,13 @@ async function submitAddDevices() {
       const formData = new FormData();
       formData.append('file', fileInput.files[0]);
 
-      const res = await fetch(`/api/devices/upload?group_name=${encodeURIComponent(group)}`, {
+      const chosenColumn = document.getElementById('modalExcelColumnSelect') ? document.getElementById('modalExcelColumnSelect').value : '';
+      const params = new URLSearchParams({ group_name: group });
+      if (chosenColumn) {
+        params.set('serial_column', chosenColumn);
+      }
+
+      const res = await fetch(`/api/devices/upload?${params.toString()}`, {
         method: 'POST',
         body: formData
       });
@@ -1282,6 +1510,210 @@ async function testTelegramConnection() {
   } catch (e) {
     showToast('Failed to test Telegram', 'error');
   }
+}
+
+// --- AGY Remote YOLO Terminal ---
+let agyEventSource = null;
+let agyTerminalLineCount = 0;
+let agyIsRunning = false;
+
+function setAgyPrompt(promptText) {
+  const input = document.getElementById('agyPromptInput');
+  if (input) {
+    input.value = promptText;
+    input.focus();
+  }
+}
+
+async function loadAgyStatus() {
+  try {
+    const res = await fetch('/api/terminal/agy/status');
+    if (!res.ok) return;
+    const data = await res.json();
+    updateAgyUiStatus(data.is_running, data.last_prompt);
+
+    // If terminal is empty or uninitialized, load existing buffered logs
+    const consoleEl = document.getElementById('agyTerminalConsole');
+    if (consoleEl && consoleEl.dataset.initialized !== 'true') {
+      const logsRes = await fetch('/api/terminal/agy/logs');
+      if (logsRes.ok) {
+        const logsData = await logsRes.json();
+        if (logsData.lines && logsData.lines.length > 0) {
+          consoleEl.innerHTML = '';
+          agyTerminalLineCount = 0;
+          logsData.lines.forEach(line => appendTerminalLine(line));
+        }
+      }
+      consoleEl.dataset.initialized = 'true';
+    }
+  } catch (e) {}
+}
+
+function updateAgyUiStatus(isRunning, prompt = '') {
+  agyIsRunning = isRunning;
+  const dot = document.getElementById('agyStatusDot');
+  const text = document.getElementById('agyStatusText');
+  const btnRun = document.getElementById('btnAgyRun');
+  const btnStop = document.getElementById('btnAgyStop');
+
+  if (isRunning) {
+    if (dot) dot.className = 'w-2 h-2 rounded-full bg-brand-500 animate-ping';
+    if (text) text.innerText = 'Running YOLO...';
+    if (btnRun) btnRun.classList.add('hidden');
+    if (btnStop) btnStop.classList.remove('hidden');
+  } else {
+    if (dot) dot.className = 'w-2 h-2 rounded-full bg-emerald-500';
+    if (text) text.innerText = 'Ready';
+    if (btnRun) btnRun.classList.remove('hidden');
+    if (btnStop) btnStop.classList.add('hidden');
+  }
+}
+
+function startAgyEventStream() {
+  if (agyEventSource) return;
+
+  agyEventSource = new EventSource('/api/terminal/agy/stream');
+
+  agyEventSource.addEventListener('line', (e) => {
+    try {
+      const data = JSON.parse(e.data);
+      appendTerminalLine(data.text);
+    } catch (err) {
+      appendTerminalLine(e.data);
+    }
+  });
+
+  agyEventSource.addEventListener('status', (e) => {
+    try {
+      const data = JSON.parse(e.data);
+      updateAgyUiStatus(data.is_running, data.last_prompt);
+      if (data.status === 'completed') {
+        appendTerminalLine(`\n[Process completed with exit code ${data.exit_code}]\n`);
+        showToast('AGY execution finished!', 'success');
+      } else if (data.status === 'stopped') {
+        appendTerminalLine(`\n[Process terminated by user]\n`);
+        showToast('AGY execution stopped', 'warning');
+      }
+    } catch (err) {}
+  });
+
+  agyEventSource.onerror = () => {
+    // EventSource will auto-reconnect
+  };
+}
+
+function appendTerminalLine(text) {
+  const consoleEl = document.getElementById('agyTerminalConsole');
+  if (!consoleEl) return;
+
+  // Clear placeholder text on first real output
+  if (consoleEl.innerText.includes('Ready to execute')) {
+    consoleEl.innerHTML = '';
+  }
+
+  const lineEl = document.createElement('div');
+  lineEl.className = 'break-all font-mono whitespace-pre-wrap';
+
+  // Format line styling based on content
+  if (text.startsWith('>') || text.startsWith('$')) {
+    lineEl.className += ' text-brand-400 font-bold';
+  } else if (text.toLowerCase().includes('error') || text.toLowerCase().includes('failed:')) {
+    lineEl.className += ' text-red-400';
+  } else if (text.toLowerCase().includes('success') || text.toLowerCase().includes('completed')) {
+    lineEl.className += ' text-emerald-300';
+  } else if (text.toLowerCase().includes('warning:')) {
+    lineEl.className += ' text-amber-400';
+  }
+
+  lineEl.textContent = text;
+  consoleEl.appendChild(lineEl);
+
+  agyTerminalLineCount++;
+  const countText = document.getElementById('terminalLineCountText');
+  if (countText) countText.innerText = `${agyTerminalLineCount} lines`;
+
+  // Auto scroll to bottom
+  consoleEl.scrollTop = consoleEl.scrollHeight;
+}
+
+async function runAgyCommand() {
+  const input = document.getElementById('agyPromptInput');
+  const prompt = input ? input.value.trim() : '';
+  if (!prompt) {
+    showToast('Please enter a prompt or instruction for AGY', 'warning');
+    if (input) input.focus();
+    return;
+  }
+
+  const sendTelegram = document.getElementById('agySendTelegramCheckbox') ? document.getElementById('agySendTelegramCheckbox').checked : true;
+  const modeSelect = document.getElementById('agyModeSelect');
+  const mode = modeSelect ? modeSelect.value : 'auto';
+
+  appendTerminalLine(`\n> agy --dangerously-skip-permissions --mode ${mode} -p "${prompt}"`);
+  updateAgyUiStatus(true, prompt);
+  startAgyEventStream();
+
+  try {
+    const res = await fetch('/api/terminal/agy/run', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        prompt: prompt,
+        mode: mode,
+        send_telegram: sendTelegram
+      })
+    });
+    const data = await res.json();
+    if (res.ok) {
+      showToast('AGY YOLO execution started!', 'success');
+    } else {
+      showToast(data.detail || 'Failed to start AGY', 'error');
+      updateAgyUiStatus(false);
+    }
+  } catch (e) {
+    showToast('Failed to start AGY execution', 'error');
+    updateAgyUiStatus(false);
+  }
+}
+
+async function stopAgyProcess() {
+  try {
+    const res = await fetch('/api/terminal/agy/stop', { method: 'POST' });
+    const data = await res.json();
+    if (res.ok) {
+      showToast(data.message || 'Process stopped', 'info');
+      updateAgyUiStatus(false);
+    } else {
+      showToast(data.detail || 'Could not stop process', 'error');
+    }
+  } catch (e) {
+    showToast('Failed to stop process', 'error');
+  }
+}
+
+function clearAgyTerminal() {
+  const consoleEl = document.getElementById('agyTerminalConsole');
+  if (consoleEl) {
+    consoleEl.innerHTML = '';
+    agyTerminalLineCount = 0;
+    const countText = document.getElementById('terminalLineCountText');
+    if (countText) countText.innerText = '0 lines';
+  }
+}
+
+function copyTerminalText() {
+  const consoleEl = document.getElementById('agyTerminalConsole');
+  if (!consoleEl) return;
+  const text = consoleEl.innerText;
+  if (!text) {
+    showToast('Terminal is empty', 'info');
+    return;
+  }
+  navigator.clipboard.writeText(text).then(() => {
+    showToast('Terminal output copied to clipboard!', 'success');
+  }).catch(() => {
+    showToast('Failed to copy output', 'error');
+  });
 }
 
 // --- Utilities ---

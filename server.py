@@ -10,13 +10,18 @@ import io
 from pathlib import Path
 from typing import Any
 
+import json
+import queue
+import time
+
 import openpyxl
 from fastapi import FastAPI, File, HTTPException, Query, UploadFile
 from fastapi.middleware.cors import CORSMiddleware
-from fastapi.responses import FileResponse, HTMLResponse
+from fastapi.responses import FileResponse, HTMLResponse, StreamingResponse
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel, Field
 
+import agy_service
 import database
 import notifier
 import reports
@@ -81,6 +86,12 @@ class UpdateSettingsRequest(BaseModel):
 class TelegramTestRequest(BaseModel):
     token: str
     chat_id: str
+
+
+class AgyRunRequest(BaseModel):
+    prompt: str = Field(..., min_length=1)
+    mode: str = Field("auto")
+    send_telegram: bool = Field(True)
 
 
 # --- API Routes ---
@@ -160,12 +171,104 @@ def bulk_add_devices(req: BulkAddDevicesRequest) -> dict[str, Any]:
     }
 
 
+def detect_serial_column_xlsx(ws: Any) -> tuple[list[dict[str, Any]], int]:
+    """Analyze Excel sheet headers and rows to identify candidate serial/IMEI columns."""
+    rows = list(ws.iter_rows(values_only=True))
+    if not rows:
+        return [], 0
+
+    headers = [str(c or "").strip() for c in rows[0]]
+    max_cols = max(len(r) for r in rows[:15]) if rows else 0
+    columns_info = []
+    candidate_col = -1
+
+    keywords = ["serial", "imei", "sn", "serial number", "serial_no", "imei1", "imei2", "device_sn", "barcode", "serials"]
+
+    for col_idx in range(max_cols):
+        col_letter = openpyxl.utils.get_column_letter(col_idx + 1)
+        h_name = headers[col_idx] if col_idx < len(headers) else f"Column {col_letter}"
+
+        samples = []
+        for r in rows[1:10]:
+            if col_idx < len(r) and r[col_idx] is not None:
+                val = str(r[col_idx]).strip()
+                if val and val.lower() != "none":
+                    samples.append(val)
+
+        is_kw = any(kw in h_name.lower() for kw in keywords)
+        has_imei = any(s.isdigit() and len(s) in (14, 15, 16) for s in samples)
+        has_alphanumeric = any(len(s) >= 8 and s.isalnum() for s in samples)
+        is_candidate = is_kw or has_imei or (has_alphanumeric and not any(" " in s for s in samples))
+
+        columns_info.append({
+            "index": col_idx,
+            "letter": col_letter,
+            "header": h_name or f"Column {col_letter}",
+            "samples": samples[:3],
+            "is_candidate": is_candidate,
+        })
+
+        if candidate_col == -1 and (is_kw or has_imei):
+            candidate_col = col_idx
+
+    if candidate_col == -1:
+        for c in columns_info:
+            if c["is_candidate"]:
+                candidate_col = c["index"]
+                break
+        if candidate_col == -1:
+            candidate_col = 0
+
+    return columns_info, candidate_col
+
+
+@app.post("/api/devices/upload-preview")
+async def preview_upload_file(file: UploadFile = File(...)) -> dict[str, Any]:
+    """Inspect an uploaded Excel or CSV/text file and return columns with samples."""
+    contents = await file.read()
+    filename = (file.filename or "").lower()
+
+    if filename.endswith(".xlsx") or filename.endswith(".xls"):
+        try:
+            wb = openpyxl.load_workbook(io.BytesIO(contents), data_only=True)
+            ws = wb.active
+            cols, detected = detect_serial_column_xlsx(ws)
+            total_rows = max(0, ws.max_row - 1)
+            return {
+                "success": True,
+                "is_excel": True,
+                "filename": file.filename,
+                "sheet_name": ws.title,
+                "total_rows": total_rows,
+                "columns": cols,
+                "detected_index": detected,
+            }
+        except Exception as e:
+            raise HTTPException(status_code=400, detail=f"Failed to inspect Excel file: {e}")
+    else:
+        try:
+            text = contents.decode("utf-8-sig", errors="ignore")
+            lines = [ln.strip() for ln in text.splitlines() if ln.strip()]
+            return {
+                "success": True,
+                "is_excel": False,
+                "filename": file.filename,
+                "sheet_name": "Plain Text / CSV",
+                "total_rows": len(lines),
+                "columns": [{"index": 0, "letter": "A", "header": "Text Lines", "samples": lines[:3], "is_candidate": True}],
+                "detected_index": 0,
+            }
+        except Exception as e:
+            raise HTTPException(status_code=400, detail=f"Failed to inspect text file: {e}")
+
+
 @app.post("/api/devices/upload")
 async def upload_devices_file(
     file: UploadFile = File(...),
     group_name: str = Query("Default"),
+    serial_column: str = Query("", description="Selected column index, letter (e.g. 'A', 'C'), or header name"),
 ) -> dict[str, Any]:
-    """Upload a .txt, .csv, or .xlsx file to bulk import serials."""
+    """Upload a .txt, .csv, or .xlsx file to bulk import serials from a targeted column."""
     contents = await file.read()
     filename = (file.filename or "").lower()
     serials: list[str] = []
@@ -174,30 +277,76 @@ async def upload_devices_file(
         try:
             wb = openpyxl.load_workbook(io.BytesIO(contents), data_only=True)
             ws = wb.active
-            for row in ws.iter_rows(values_only=True):
-                if not row:
+            rows = list(ws.iter_rows(values_only=True))
+            if not rows:
+                raise HTTPException(status_code=400, detail="Excel file is empty.")
+
+            cols, detected_idx = detect_serial_column_xlsx(ws)
+            headers = [str(c or "").strip() for c in rows[0]]
+
+            # Determine target column index
+            target_idx = detected_idx
+            if serial_column.strip():
+                sc = serial_column.strip()
+                if sc.isdigit():
+                    target_idx = int(sc)
+                elif len(sc) in (1, 2) and sc.isalpha():
+                    target_idx = openpyxl.utils.column_index_from_string(sc.upper()) - 1
+                else:
+                    # Match by header name
+                    for i, h in enumerate(headers):
+                        if h.lower() == sc.lower():
+                            target_idx = i
+                            break
+
+            # Extract serials starting from row 2 (skipping header)
+            start_row = 1 if len(rows) > 1 else 0
+            for row in rows[start_row:]:
+                if not row or target_idx >= len(row):
                     continue
-                for cell in row:
-                    val = str(cell).strip()
-                    if val and len(val) >= 4 and not val.lower().startswith("serial") and not val.lower().startswith("imei"):
-                        serials.append(val)
-                        break  # Take first valid cell per row
+                cell_val = row[target_idx]
+                if cell_val is None:
+                    continue
+                val = str(cell_val).strip()
+                # Skip header-like keywords if present in data
+                if val and len(val) >= 4 and not val.lower().startswith("serial") and not val.lower().startswith("imei"):
+                    serials.append(val)
+        except HTTPException:
+            raise
         except Exception as e:
             raise HTTPException(status_code=400, detail=f"Failed to parse Excel file: {e}")
     else:
         # Plain text or CSV
         try:
             text = contents.decode("utf-8-sig", errors="ignore")
-            lines = text.replace(",", "\n").replace(";", "\n").splitlines()
-            for ln in lines:
-                val = ln.strip()
-                if val and not val.lower().startswith("serial") and not val.lower().startswith("imei"):
-                    serials.append(val)
+            lines = text.splitlines()
+            if lines and ("," in lines[0] or ";" in lines[0] or "\t" in lines[0]):
+                delim = "\t" if "\t" in lines[0] else (";" if ";" in lines[0] else ",")
+                headers = [h.strip() for h in lines[0].split(delim)]
+                target_idx = 0
+                if serial_column.strip() and serial_column.strip().isdigit():
+                    target_idx = int(serial_column.strip())
+                else:
+                    for i, h in enumerate(headers):
+                        if any(kw in h.lower() for kw in ["serial", "imei", "sn"]):
+                            target_idx = i
+                            break
+                for ln in lines[1:]:
+                    parts = ln.split(delim)
+                    if target_idx < len(parts):
+                        val = parts[target_idx].strip()
+                        if val and len(val) >= 4 and not val.lower().startswith("serial"):
+                            serials.append(val)
+            else:
+                for ln in lines:
+                    val = ln.strip()
+                    if val and len(val) >= 4 and not val.lower().startswith("serial") and not val.lower().startswith("imei"):
+                        serials.append(val)
         except Exception as e:
             raise HTTPException(status_code=400, detail=f"Failed to parse text file: {e}")
 
     if not serials:
-        raise HTTPException(status_code=400, detail="No valid serial numbers found in uploaded file.")
+        raise HTTPException(status_code=400, detail="No valid serial numbers found in the selected column.")
 
     added, total = database.bulk_upsert_devices(serials, group_name)
     return {
@@ -206,7 +355,7 @@ async def upload_devices_file(
         "total": total,
         "group": group_name,
         "filename": file.filename,
-        "message": f"Imported {added} new device(s) from {file.filename}.",
+        "message": f"Successfully imported {added} new device(s) ({total} read) into group '{group_name}'.",
     }
 
 
@@ -399,6 +548,70 @@ def export_database_csv() -> FileResponse:
         filename=csv_path.name,
         media_type="text/csv",
     )
+
+
+# --- AGY Remote Terminal YOLO Engine Routes ---
+
+@app.post("/api/terminal/agy/run")
+def run_agy_command(req: AgyRunRequest) -> dict[str, Any]:
+    """Execute an AGY turn in YOLO mode (skip all permissions)."""
+    ok, msg = agy_service.agy_runner.run_prompt(
+        prompt=req.prompt,
+        mode=req.mode,
+        send_telegram=req.send_telegram,
+    )
+    if not ok:
+        raise HTTPException(status_code=400, detail=msg)
+    return {"success": True, "message": msg}
+
+
+@app.get("/api/terminal/agy/status")
+def get_agy_status() -> dict[str, Any]:
+    """Get live execution state and metadata."""
+    return agy_service.agy_runner.get_status()
+
+
+@app.get("/api/terminal/agy/logs")
+def get_agy_logs(since: int = Query(0, ge=0)) -> dict[str, Any]:
+    """Poll logs since a given index."""
+    logs = agy_service.agy_runner.get_recent_logs(since_index=since)
+    status = agy_service.agy_runner.get_status()
+    return {"logs": logs, "status": status}
+
+
+@app.get("/api/terminal/agy/stream")
+async def stream_agy_output():
+    """Server-Sent Events (SSE) live stream of terminal output."""
+    def event_generator():
+        q = agy_service.agy_runner.subscribe()
+        try:
+            initial_logs = agy_service.agy_runner.get_recent_logs()
+            for log in initial_logs[-50:]:
+                yield f"data: {json.dumps(log)}\n\n"
+
+            while True:
+                try:
+                    log = q.get(timeout=1.5)
+                    yield f"data: {json.dumps(log)}\n\n"
+                except queue.Empty:
+                    status = agy_service.agy_runner.get_status()
+                    yield f": heartbeat {status['is_running']}\n\n"
+                    if not status["is_running"] and q.empty():
+                        time.sleep(1.0)
+                        if not agy_service.agy_runner.is_running and q.empty():
+                            yield f"event: done\ndata: {json.dumps(status)}\n\n"
+                            break
+        finally:
+            agy_service.agy_runner.unsubscribe(q)
+
+    return StreamingResponse(event_generator(), media_type="text/event-stream")
+
+
+@app.post("/api/terminal/agy/stop")
+def stop_agy_command() -> dict[str, Any]:
+    """Stop running AGY process."""
+    ok = agy_service.agy_runner.stop()
+    return {"success": ok}
 
 
 # --- Static Files & Root View ---

@@ -76,6 +76,12 @@
         <span class="hidden sm:inline">Home</span>
       </button>
 
+      <!-- AGY Remote Terminal YOLO Button -->
+      <button onclick="switchTab('Terminal')" class="bg-dark-card hover:bg-dark-border text-emerald-400 border border-emerald-500/30 text-xs font-mono font-semibold px-2.5 py-2 rounded-lg flex items-center space-x-1.5 transition active:scale-95 shadow-sm" title="Remote AGY YOLO Terminal">
+        <span>&gt;_</span>
+        <span class="hidden sm:inline font-sans">AGY</span>
+      </button>
+
       <!-- Add to Home Screen PWA Button -->
       <button id="btnInstallPwaHeader" onclick="promptInstallPwa()" class="bg-purple-950/40 hover:bg-purple-900/60 text-purple-300 border border-purple-500/30 text-xs font-semibold px-2.5 py-2 rounded-lg flex items-center space-x-1.5 transition active:scale-95 shadow-sm" title="Add app to your phone Home Screen">
         <span>📲</span>
@@ -378,6 +384,9 @@
           <button id="btnRetryErrorsView" onclick="triggerRunErrorsOnly()" class="hidden bg-red-500/20 hover:bg-red-500/30 text-red-400 font-bold px-2 py-1 rounded text-[11px] border border-red-500/30 active:scale-95 transition flex items-center space-x-1">
             <span>⚡ Retry All Errors</span>
           </button>
+          <button id="btnDeleteCurrentGroup" onclick="deleteCurrentGroup()" class="hidden text-red-400 hover:text-red-300 font-semibold flex items-center space-x-1 text-[11px] px-2 py-1 bg-red-500/10 hover:bg-red-500/20 rounded border border-red-500/30 active:scale-95 transition" title="Delete this group">
+            <span>🗑️ Delete Group</span>
+          </button>
           <button id="btnRunCurrentGroup" onclick="runCurrentGroup()" class="text-brand-500 font-semibold hover:underline flex items-center space-x-1">
             <span>⚡ Run This Group</span>
           </button>
@@ -623,34 +632,137 @@
       </button>
     </div>
 
+    <!-- 6. AGY REMOTE TERMINAL (YOLO MODE) VIEW -->
+    <div id="viewTerminal" class="hidden space-y-4">
+      <!-- Terminal Header Card -->
+      <div class="bg-gradient-to-r from-emerald-950/60 via-dark-surface to-dark-card border border-brand-500/40 rounded-xl p-4 shadow-lg">
+        <div class="flex flex-col sm:flex-row sm:items-center justify-between gap-2 mb-2">
+          <div class="flex items-center space-x-2.5">
+            <div class="w-9 h-9 rounded-xl bg-brand-600/20 text-brand-400 flex items-center justify-center font-mono text-base font-bold">
+              &gt;_
+            </div>
+            <div>
+              <h2 class="text-sm font-bold text-white flex items-center space-x-2">
+                <span>Antigravity AGY Remote Execution Engine</span>
+                <span class="px-2 py-0.5 rounded text-[10px] bg-red-500/20 text-red-400 border border-red-500/30 font-bold uppercase">YOLO Mode</span>
+              </h2>
+              <div class="text-[11px] text-dark-muted flex items-center space-x-2">
+                <span>Dir: <code class="text-white font-mono text-[10px]">/home/dell/Desktop/automation/Captcha-scroll-pass</code></span>
+              </div>
+            </div>
+          </div>
+          <div class="flex items-center space-x-2">
+            <span id="agyStatusBadge" class="px-2.5 py-1 rounded-full text-xs font-semibold bg-dark-card text-dark-muted border border-dark-border flex items-center space-x-1.5">
+              <span id="agyStatusDot" class="w-2 h-2 rounded-full bg-emerald-500"></span>
+              <span id="agyStatusText">Ready</span>
+            </span>
+          </div>
+        </div>
+        <p class="text-xs text-dark-muted">
+          Execute any prompt or code edit with <code class="text-brand-400 font-mono">--dangerously-skip-permissions</code> enabled. Live terminal output streams below and completion alerts are sent directly to your Telegram bot.
+        </p>
+      </div>
+
+      <!-- Command / Prompt Input Card -->
+      <div class="bg-dark-surface border border-dark-border rounded-xl p-4 space-y-3">
+        <div>
+          <label class="block text-xs font-bold text-white mb-1.5">Prompt / Instruction for AGY:</label>
+          <textarea id="agyPromptInput" rows="3" placeholder="e.g. 'Check git status and summarize recent changes', 'Optimize the excel upload error handler', 'Run test on captcha solver'..." class="w-full bg-dark-main border border-dark-border rounded-lg p-3 text-xs text-white placeholder-dark-muted font-mono focus:border-brand-500 focus:outline-none"></textarea>
+        </div>
+
+        <!-- Quick Presets -->
+        <div class="flex flex-wrap items-center gap-1.5 text-xs">
+          <span class="text-[11px] text-dark-muted font-semibold mr-1">Presets:</span>
+          <button onclick="setAgyPrompt('git status')" class="px-2 py-1 rounded bg-dark-card hover:bg-dark-border text-dark-text text-[11px] font-mono">git status</button>
+          <button onclick="setAgyPrompt('git log -n 3 --oneline')" class="px-2 py-1 rounded bg-dark-card hover:bg-dark-border text-dark-text text-[11px] font-mono">git log</button>
+          <button onclick="setAgyPrompt('Check database device counts and health status')" class="px-2 py-1 rounded bg-dark-card hover:bg-dark-border text-dark-text text-[11px]">DB Health</button>
+          <button onclick="setAgyPrompt('List all files in reports directory')" class="px-2 py-1 rounded bg-dark-card hover:bg-dark-border text-dark-text text-[11px]">List Reports</button>
+        </div>
+
+        <div class="flex flex-wrap items-center justify-between gap-2 pt-1 border-t border-dark-border/50">
+          <div class="flex items-center space-x-3 text-xs">
+            <label class="flex items-center space-x-1.5 text-dark-text cursor-pointer">
+              <input type="checkbox" id="agySendTelegramCheckbox" checked class="rounded bg-dark-main border-dark-border text-brand-600 focus:ring-0">
+              <span class="text-[11px]">Send result to Telegram ✈️</span>
+            </label>
+            <select id="agyModeSelect" class="bg-dark-main border border-dark-border rounded-md px-2 py-1 text-[11px] text-white">
+              <option value="auto">Mode: auto (Recommended)</option>
+              <option value="accept-edits">Mode: accept-edits</option>
+              <option value="plan">Mode: plan</option>
+            </select>
+          </div>
+
+          <div class="flex items-center space-x-2">
+            <button onclick="clearAgyTerminal()" class="px-3 py-2 text-xs font-semibold text-dark-muted hover:text-white bg-dark-card hover:bg-dark-border rounded-lg transition">
+              Clear Screen
+            </button>
+            <button id="btnAgyStop" onclick="stopAgyProcess()" class="hidden px-3.5 py-2 text-xs font-bold text-red-400 bg-red-500/20 hover:bg-red-500/30 rounded-lg active:scale-95 transition">
+              🛑 Stop AGY
+            </button>
+            <button id="btnAgyRun" onclick="runAgyCommand()" class="px-5 py-2 text-xs font-bold text-white bg-gradient-to-r from-brand-600 to-brand-500 hover:from-brand-500 hover:to-brand-600 rounded-lg shadow-lg shadow-brand-500/20 active:scale-95 transition flex items-center space-x-1.5">
+              <span>⚡ Run AGY (YOLO)</span>
+            </button>
+          </div>
+        </div>
+      </div>
+
+      <!-- Live Terminal Output Console Window -->
+      <div class="bg-dark-surface border border-dark-border rounded-xl p-4 space-y-2">
+        <div class="flex items-center justify-between text-xs pb-1 border-b border-dark-border/50">
+          <div class="flex items-center space-x-2">
+            <span class="w-2.5 h-2.5 rounded-full bg-red-500/80 inline-block"></span>
+            <span class="w-2.5 h-2.5 rounded-full bg-amber-500/80 inline-block"></span>
+            <span class="w-2.5 h-2.5 rounded-full bg-emerald-500/80 inline-block"></span>
+            <span class="text-dark-muted font-mono font-semibold ml-2 text-[11px]">Terminal Output (Live Stream)</span>
+          </div>
+          <div class="flex items-center space-x-2">
+            <span id="terminalLineCountText" class="text-[11px] text-dark-muted font-mono">0 lines</span>
+            <button onclick="copyTerminalText()" class="text-[11px] text-brand-500 hover:underline">Copy Log</button>
+          </div>
+        </div>
+
+        <div id="agyTerminalConsole" class="bg-black/90 border border-dark-border/80 rounded-xl p-3.5 font-mono text-xs text-emerald-400 min-h-[300px] max-h-[550px] overflow-y-auto space-y-1 select-text leading-relaxed">
+          <div class="text-dark-muted text-center py-10 font-sans">
+            Ready to execute. Enter instructions above and click <b>⚡ Run AGY (YOLO)</b>.<br>
+            All tool permissions are auto-approved in YOLO mode.
+          </div>
+        </div>
+      </div>
+    </div>
+
   </main>
 
   <!-- BOTTOM MOBILE NAVIGATION BAR -->
-  <nav class="fixed bottom-0 left-0 right-0 z-40 bg-dark-surface/95 backdrop-blur-lg border-t border-dark-border px-2 py-1.5 flex items-center justify-around">
+  <nav class="fixed bottom-0 left-0 right-0 z-40 bg-dark-surface/95 backdrop-blur-lg border-t border-dark-border px-1.5 py-1.5 flex items-center justify-around">
     <!-- Home / Dashboard -->
-    <button onclick="switchTab('Dashboard')" id="tabBtn_Dashboard" class="flex flex-col items-center py-1 px-3 text-brand-500 transition">
+    <button onclick="switchTab('Dashboard')" id="tabBtn_Dashboard" class="flex flex-col items-center py-1 px-2.5 text-brand-500 transition">
       <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M3 12l2-2m0 0l7-7 7 7M5 10v10a1 1 0 001 1h3m10-11l2 2m-2-2v10a1 1 0 01-1 1h-3m-6 0a1 1 0 001-1v-4a1 1 0 011-1h2a1 1 0 011 1v4a1 1 0 001 1m-6 0h6"/></svg>
       <span class="text-[10px] font-semibold mt-0.5">Home</span>
     </button>
     <!-- Devices -->
-    <button onclick="switchTab('Devices')" id="tabBtn_Devices" class="flex flex-col items-center py-1 px-3 text-dark-muted hover:text-white transition">
+    <button onclick="switchTab('Devices')" id="tabBtn_Devices" class="flex flex-col items-center py-1 px-2.5 text-dark-muted hover:text-white transition">
       <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 18h.01M8 21h8a2 2 0 002-2V5a2 2 0 00-2-2H8a2 2 0 00-2 2v14a2 2 0 002 2z"/></svg>
       <span class="text-[10px] font-semibold mt-0.5">Devices</span>
     </button>
     <!-- Scanner -->
-    <button onclick="switchTab('Scanner')" id="tabBtn_Scanner" class="flex flex-col items-center py-1 px-3 text-dark-muted hover:text-white transition">
-      <div class="w-8 h-8 -mt-3 rounded-full bg-brand-600 text-white flex items-center justify-center shadow-lg shadow-brand-500/30">
-        <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 4v1m6 11h2m-6 0h-2v4m0-11v3m0 0h.01M12 12h4.01M16 20h4M4 12h4m12 0h.01M5 8h2a1 1 0 001-1V5a1 1 0 00-1-1H5a1 1 0 00-1 1v2a1 1 0 001 1zm12 0h2a1 1 0 001-1V5a1 1 0 00-1-1h-2a1 1 0 00-1 1v2a1 1 0 001 1zM5 20h2a1 1 0 001-1v-2a1 1 0 00-1-1H5a1 1 0 00-1 1v2a1 1 0 001 1z"/></svg>
+    <button onclick="switchTab('Scanner')" id="tabBtn_Scanner" class="flex flex-col items-center py-1 px-2 text-dark-muted hover:text-white transition">
+      <div class="w-7 h-7 -mt-2 rounded-full bg-brand-600 text-white flex items-center justify-center shadow-lg shadow-brand-500/30">
+        <svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 4v1m6 11h2m-6 0h-2v4m0-11v3m0 0h.01M12 12h4.01M16 20h4M4 12h4m12 0h.01M5 8h2a1 1 0 001-1V5a1 1 0 00-1-1H5a1 1 0 00-1 1v2a1 1 0 001 1zm12 0h2a1 1 0 001-1V5a1 1 0 00-1-1h-2a1 1 0 00-1 1v2a1 1 0 001 1zM5 20h2a1 1 0 001-1v-2a1 1 0 00-1-1H5a1 1 0 00-1 1v2a1 1 0 001 1z"/></svg>
       </div>
       <span class="text-[10px] font-semibold mt-0.5">Scanner</span>
     </button>
+    <!-- AGY YOLO Terminal -->
+    <button onclick="switchTab('Terminal')" id="tabBtn_Terminal" class="flex flex-col items-center py-1 px-2.5 text-dark-muted hover:text-white transition">
+      <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M8 9l3 3-3 3m5 0h3M5 20h14a2 2 0 002-2V6a2 2 0 00-2-2H5a2 2 0 00-2 2v12a2 2 0 002 2z"/></svg>
+      <span class="text-[10px] font-semibold mt-0.5">AGY</span>
+    </button>
     <!-- Reports -->
-    <button onclick="switchTab('Reports')" id="tabBtn_Reports" class="flex flex-col items-center py-1 px-3 text-dark-muted hover:text-white transition">
+    <button onclick="switchTab('Reports')" id="tabBtn_Reports" class="flex flex-col items-center py-1 px-2.5 text-dark-muted hover:text-white transition">
       <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z"/></svg>
       <span class="text-[10px] font-semibold mt-0.5">Sheets</span>
     </button>
     <!-- Settings -->
-    <button onclick="switchTab('Settings')" id="tabBtn_Settings" class="flex flex-col items-center py-1 px-3 text-dark-muted hover:text-white transition">
+    <button onclick="switchTab('Settings')" id="tabBtn_Settings" class="flex flex-col items-center py-1 px-2.5 text-dark-muted hover:text-white transition">
       <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M10.325 4.317c.426-1.756 2.924-1.756 3.35 0a1.724 1.724 0 002.573 1.066c1.543-.94 3.31.826 2.37 2.37a1.724 1.724 0 001.065 2.572c1.756.426 1.756 2.924 0 3.35a1.724 1.724 0 00-1.066 2.573c.94 1.543-.826 3.31-2.37 2.37a1.724 1.724 0 00-2.572 1.065c-.426 1.756-2.924 1.756-3.35 0a1.724 1.724 0 00-2.573-1.066c-1.543.94-3.31-.826-2.37-2.37a1.724 1.724 0 00-1.065-2.572c-1.756-.426-1.756-2.924 0-3.35a1.724 1.724 0 001.066-2.573c-.94-1.543.826-3.31 2.37-2.37.996.608 2.296.07 2.572-1.065z"/><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15 12a3 3 0 11-6 0 3 3 0 016 0z"/></svg>
       <span class="text-[10px] font-semibold mt-0.5">Settings</span>
     </button>
@@ -677,6 +789,7 @@
             <option value="Default">Default</option>
           </select>
           <button onclick="openNewGroupPrompt()" class="bg-dark-card hover:bg-dark-border text-white text-xs px-3 rounded-lg border border-dark-border">+ Group</button>
+          <button onclick="openManageGroupsModal()" class="bg-dark-card hover:bg-dark-border text-brand-400 text-xs px-2.5 rounded-lg border border-dark-border" title="Manage / Delete Groups">⚙️</button>
         </div>
       </div>
 
@@ -686,16 +799,68 @@
         <textarea id="modalBulkSerialsText" rows="6" placeholder="OPPO12345678&#10;864201234567890&#10;864201234567891" class="w-full bg-dark-main border border-dark-border rounded-lg p-2.5 text-xs text-white placeholder-dark-muted font-mono focus:border-brand-500"></textarea>
       </div>
 
-      <!-- File Upload Input -->
-      <div id="addModeFileSection" class="hidden">
-        <label class="block text-xs font-semibold text-white mb-1">Upload .txt, .csv, or .xlsx:</label>
-        <input type="file" id="modalFileInput" accept=".txt,.csv,.xlsx,.xls" class="w-full bg-dark-main border border-dark-border rounded-lg p-2 text-xs text-white file:mr-3 file:py-1 file:px-3 file:rounded-md file:border-0 file:text-xs file:font-semibold file:bg-brand-600 file:text-white">
+      <!-- File Upload Input with Column Selection -->
+      <div id="addModeFileSection" class="hidden space-y-2.5">
+        <div>
+          <label class="block text-xs font-semibold text-white mb-1">Upload .xlsx, .xls, .csv, or .txt:</label>
+          <input type="file" id="modalFileInput" onchange="onUploadFileSelected(this)" accept=".txt,.csv,.xlsx,.xls" class="w-full bg-dark-main border border-dark-border rounded-lg p-2 text-xs text-white file:mr-3 file:py-1 file:px-3 file:rounded-md file:border-0 file:text-xs file:font-semibold file:bg-brand-600 file:text-white">
+        </div>
+
+        <!-- Excel / CSV Column Selection Card -->
+        <div id="excelColumnSelectorCard" class="hidden bg-dark-main border border-brand-500/40 rounded-xl p-3 space-y-2 text-xs">
+          <div class="flex items-center justify-between">
+            <span class="font-bold text-white flex items-center space-x-1.5">
+              <span>📊 Serial / IMEI Column:</span>
+            </span>
+            <span id="excelFileStatsPill" class="text-[10px] bg-dark-card text-brand-400 px-2 py-0.5 rounded font-mono"></span>
+          </div>
+
+          <select id="modalExcelColumnSelect" onchange="onSelectedColumnChange()" class="w-full bg-dark-card border border-dark-border rounded-lg p-2 text-xs text-white focus:border-brand-500">
+            <!-- Populated dynamically -->
+          </select>
+
+          <!-- Column Sample Preview -->
+          <div id="excelColumnSamplesPreview" class="text-[11px] text-dark-muted font-mono bg-dark-surface/60 p-2 rounded-lg border border-dark-border/40">
+            <!-- First 3 samples preview -->
+          </div>
+        </div>
       </div>
 
       <!-- Actions -->
       <div class="flex items-center justify-end space-x-2 pt-2">
         <button onclick="closeAddModal()" class="px-4 py-2 text-xs font-semibold text-dark-muted hover:text-white">Cancel</button>
         <button onclick="submitAddDevices()" id="btnSubmitAddDevices" class="px-5 py-2 text-xs font-bold bg-brand-600 hover:bg-brand-500 text-white rounded-lg active:scale-95 shadow">Save Devices</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- MANAGE GROUPS MODAL -->
+  <div id="modalManageGroups" class="hidden fixed inset-0 z-50 bg-black/75 backdrop-blur-sm flex items-center justify-center p-4">
+    <div class="bg-dark-surface border border-dark-border rounded-2xl w-full max-w-md p-5 space-y-4 shadow-2xl">
+      <div class="flex items-center justify-between border-b border-dark-border pb-3">
+        <h3 class="text-sm font-bold text-white flex items-center space-x-2">
+          <span>📁 Manage Device Groups</span>
+        </h3>
+        <button onclick="closeManageGroupsModal()" class="text-dark-muted hover:text-white text-lg font-bold">&times;</button>
+      </div>
+
+      <!-- Add New Group Input -->
+      <div class="flex items-center space-x-2">
+        <input type="text" id="inputNewGroupName" placeholder="Enter new group name (e.g. testgroup)..." class="flex-1 bg-dark-main border border-dark-border rounded-lg px-3 py-2 text-xs text-white placeholder-dark-muted focus:border-brand-500">
+        <button onclick="createGroupFromModal()" class="bg-brand-600 hover:bg-brand-500 text-white font-bold px-3 py-2 rounded-lg active:scale-95 transition text-xs whitespace-nowrap">
+          + Add Group
+        </button>
+      </div>
+
+      <!-- Groups List with Delete Option -->
+      <div class="space-y-2 max-h-64 overflow-y-auto" id="manageGroupsList">
+        <!-- Rendered by JS: Group Name | Devices Count | Delete Button -->
+      </div>
+
+      <div class="pt-2 text-right border-t border-dark-border/50">
+        <button onclick="closeManageGroupsModal()" class="bg-dark-card hover:bg-dark-border text-white text-xs font-semibold px-4 py-2 rounded-lg">
+          Close
+        </button>
       </div>
     </div>
   </div>
