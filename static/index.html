@@ -103,14 +103,14 @@
     <div id="viewDashboard" class="space-y-4">
       <!-- High-Level Metric Cards Grid -->
       <div class="grid grid-cols-2 md:grid-cols-4 gap-3">
-        <!-- Activated Today -->
+        <!-- Detected Active Today -->
         <div class="bg-gradient-to-br from-emerald-900/40 to-dark-surface border border-emerald-500/30 rounded-xl p-3.5 flex flex-col justify-between">
           <div class="flex items-center justify-between">
-            <span class="text-xs font-medium text-emerald-400">Activated Today</span>
+            <span class="text-xs font-medium text-emerald-400">Detected Active Today</span>
             <span class="p-1 rounded-lg bg-emerald-500/10 text-emerald-400">🔥</span>
           </div>
           <div class="text-2xl font-black text-white mt-2" id="metricActivatedToday">0</div>
-          <span class="text-[10px] text-dark-muted mt-1">Sales completed today</span>
+          <span class="text-[10px] text-dark-muted mt-1">Verified active today</span>
         </div>
 
         <!-- Total Tracked -->
@@ -208,7 +208,7 @@
           <button onclick="setFilterStatus('Active')" id="filterBtn_Active" class="px-2.5 py-1 rounded-md font-semibold bg-dark-card text-dark-muted hover:text-white text-[11px]">Active (Yes)</button>
           <button onclick="setFilterStatus('Inactive')" id="filterBtn_Inactive" class="px-2.5 py-1 rounded-md font-semibold bg-dark-card text-dark-muted hover:text-white text-[11px]">Inactive (Pending)</button>
           <button onclick="setFilterStatus('Error')" id="filterBtn_Error" class="px-2.5 py-1 rounded-md font-semibold bg-dark-card text-dark-muted hover:text-white text-[11px]">Errors</button>
-          <button onclick="setFilterNewlyActivated()" id="filterBtn_Newly" class="px-2.5 py-1 rounded-md font-semibold bg-dark-card text-amber-400 hover:text-amber-300 text-[11px]">🔥 Activated Today</button>
+          <button onclick="setFilterNewlyActivated()" id="filterBtn_Newly" class="px-2.5 py-1 rounded-md font-semibold bg-dark-card text-amber-400 hover:text-amber-300 text-[11px]">🔥 Detected Today</button>
         </div>
       </div>
 

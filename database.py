@@ -385,17 +385,18 @@ def get_devices(
             count_query += " AND (status IN ('Error', 'Captcha Failed', 'No Response'))"
 
     if newly_activated_only:
-        # Activated in the last 24 hours
-        yesterday = (datetime.datetime.now() - datetime.timedelta(hours=24)).strftime("%Y-%m-%d %H:%M:%S")
-        query += " AND is_active = 'Yes' AND activated_at >= ?"
-        count_query += " AND is_active = 'Yes' AND activated_at >= ?"
-        params.append(yesterday)
+        # Detected active today
+        today_start = datetime.datetime.now().strftime("%Y-%m-%d 00:00:00")
+        today_end = datetime.datetime.now().strftime("%Y-%m-%d 23:59:59")
+        query += " AND is_active = 'Yes' AND activated_at >= ? AND activated_at <= ?"
+        count_query += " AND is_active = 'Yes' AND activated_at >= ? AND activated_at <= ?"
+        params.extend([today_start, today_end])
 
     query += " ORDER BY id DESC LIMIT ? OFFSET ?;"
 
     with get_db_cursor() as cur:
         # Get total matching count
-        cur.execute(count_query, params[:-2] if newly_activated_only and len(params) > 1 else params)
+        cur.execute(count_query, params)
         total_cnt = cur.fetchone()["cnt"]
 
         # Get rows
@@ -457,6 +458,7 @@ def get_dashboard_stats() -> dict[str, Any]:
     """Compute high-level metrics for dashboard cards."""
     now = datetime.datetime.now()
     today_start = now.strftime("%Y-%m-%d 00:00:00")
+    today_end = now.strftime("%Y-%m-%d 23:59:59")
 
     with get_db_cursor() as cur:
         cur.execute("""
@@ -466,9 +468,9 @@ def get_dashboard_stats() -> dict[str, Any]:
                 SUM(CASE WHEN is_active = 'No' THEN 1 ELSE 0 END) AS inactive_count,
                 SUM(CASE WHEN is_active = 'Unknown' OR status = 'Pending' THEN 1 ELSE 0 END) AS pending_count,
                 SUM(CASE WHEN status IN ('Error', 'Captcha Failed', 'No Response') THEN 1 ELSE 0 END) AS error_count,
-                SUM(CASE WHEN is_active = 'Yes' AND activated_at >= ? THEN 1 ELSE 0 END) AS activated_today_count
+                SUM(CASE WHEN is_active = 'Yes' AND activated_at >= ? AND activated_at <= ? THEN 1 ELSE 0 END) AS activated_today_count
             FROM devices;
-        """, (today_start,))
+        """, (today_start, today_end))
         row = cur.fetchone()
 
         cur.execute("SELECT COUNT(*) AS cnt FROM groups;")
@@ -590,9 +592,9 @@ def import_sheet_to_database(
             status = str(r.get("Check Status") or r.get("status") or "Found").strip()
             last_checked = str(r.get("Last Checked") or r.get("last_checked_at") or now).strip()
 
+            # Baseline historical import: leave activated_at empty.
+            # Only live detection runs will stamp activated_at with the detection timestamp!
             activated_at = ""
-            if is_active == "Yes":
-                activated_at = act_date if act_date and act_date != "Not Activated" else last_checked
 
             cur.execute("""
                 INSERT INTO devices (
