@@ -58,7 +58,9 @@ function switchTab(tabName) {
     }
   });
 
-  if (tabName === 'Devices') {
+  if (tabName === 'Dashboard') {
+    loadDashboardStats();
+  } else if (tabName === 'Devices') {
     loadDevices();
   } else if (tabName === 'Reports') {
     loadReportsHistory();
@@ -68,21 +70,39 @@ function switchTab(tabName) {
 }
 
 // --- Status Polling & Live Floating Banner ---
+let lastRunningState = false;
+let statusPollCounter = 0;
+
 function startStatusPolling() {
   const poll = async () => {
     try {
       const res = await fetch('/api/run/status');
       if (res.ok) {
         const data = await res.json();
+        const wasRunning = lastRunningState;
+        lastRunningState = !!data.is_running;
         state.workerStatus = data;
+
         renderLiveJobBanner(data);
         if (data.next_run) {
           renderNextRun(data.next_run);
         }
+
+        statusPollCounter++;
+        // If a run just completed: refresh dashboard stats, devices, and reports immediately!
+        if (wasRunning && !data.is_running) {
+          loadDashboardStats();
+          loadDevices();
+          loadReportsHistory();
+          showToast(`Verification run finished! Recovered devices updated.`, 'success');
+        } else if (data.is_running && statusPollCounter % 2 === 0) {
+          // While running: refresh stats periodically so cards update in real-time
+          loadDashboardStats();
+        }
       }
     } catch (e) {}
 
-    const interval = (state.workerStatus && state.workerStatus.is_running) ? 1500 : 4000;
+    const interval = (state.workerStatus && state.workerStatus.is_running) ? 1500 : 3500;
     state.pollTimer = setTimeout(poll, interval);
   };
   poll();
