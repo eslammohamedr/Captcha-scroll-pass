@@ -53,13 +53,15 @@
 <body class="min-h-screen flex flex-col pb-20 md:pb-6 select-none">
 
   <!-- TOP HEADER -->
-  <header class="sticky top-0 z-40 bg-dark-surface/90 backdrop-blur-md border-b border-dark-border px-4 py-3 flex items-center justify-between">
-    <div class="flex items-center space-x-3">
+  <header class="sticky top-0 z-40 bg-dark-surface/90 backdrop-blur-md border-b border-dark-border px-3 sm:px-4 py-3 flex items-center justify-between">
+    <div class="flex items-center space-x-3 cursor-pointer select-none" onclick="switchTab('Dashboard')" title="Go to Home Screen / Dashboard">
       <div class="w-9 h-9 rounded-xl bg-gradient-to-tr from-brand-600 to-brand-500 flex items-center justify-center shadow-lg shadow-brand-500/20">
         <svg class="w-5 h-5 text-white" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 18h.01M8 21h8a2 2 0 002-2V5a2 2 0 00-2-2H8a2 2 0 00-2 2v14a2 2 0 002 2z"/></svg>
       </div>
       <div>
-        <h1 class="text-base font-bold text-white leading-tight">OPPO Sales Monitor</h1>
+        <h1 class="text-base font-bold text-white leading-tight flex items-center space-x-1.5">
+          <span>OPPO Sales Monitor</span>
+        </h1>
         <div class="flex items-center space-x-1.5 text-xs text-dark-muted">
           <span id="headerStatusDot" class="w-2 h-2 rounded-full bg-emerald-500 animate-pulse"></span>
           <span id="headerStatusText">Ready</span>
@@ -68,6 +70,18 @@
     </div>
 
     <div class="flex items-center space-x-2">
+      <!-- Quick Home Button -->
+      <button onclick="switchTab('Dashboard')" class="bg-dark-card hover:bg-dark-border text-white text-xs font-semibold px-2.5 py-2 rounded-lg flex items-center space-x-1.5 transition active:scale-95 border border-dark-border shadow-sm" title="Go to Home Screen">
+        <span>🏠</span>
+        <span class="hidden sm:inline">Home</span>
+      </button>
+
+      <!-- Add to Home Screen PWA Button -->
+      <button id="btnInstallPwaHeader" onclick="promptInstallPwa()" class="bg-purple-950/40 hover:bg-purple-900/60 text-purple-300 border border-purple-500/30 text-xs font-semibold px-2.5 py-2 rounded-lg flex items-center space-x-1.5 transition active:scale-95 shadow-sm" title="Add app to your phone Home Screen">
+        <span>📲</span>
+        <span class="hidden sm:inline">Add to Home</span>
+      </button>
+
       <button onclick="openAddModal()" class="bg-brand-600 hover:bg-brand-500 text-white text-xs font-semibold px-3 py-2 rounded-lg flex items-center space-x-1.5 transition active:scale-95 shadow">
         <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 4v16m8-8H4"/></svg>
         <span>Add</span>
@@ -101,6 +115,26 @@
 
     <!-- 1. DASHBOARD VIEW -->
     <div id="viewDashboard" class="space-y-4">
+      <!-- Add to Home Screen Banner (Dismissible) -->
+      <div id="pwaInstallBanner" class="bg-gradient-to-r from-emerald-950/50 via-dark-surface to-dark-card border border-brand-500/30 rounded-xl p-3 flex items-center justify-between text-xs shadow-sm">
+        <div class="flex items-center space-x-2.5">
+          <div class="w-8 h-8 rounded-lg bg-brand-500/10 text-brand-400 flex items-center justify-center font-bold text-base">📲</div>
+          <div>
+            <div class="font-bold text-white flex items-center space-x-1.5">
+              <span>Add App to Home Screen</span>
+              <span class="px-1.5 py-0.2 rounded text-[9px] bg-brand-500/20 text-brand-400 font-semibold uppercase">Mobile PWA</span>
+            </div>
+            <div class="text-[11px] text-dark-muted">Install on your phone or desktop for instant 1-tap access.</div>
+          </div>
+        </div>
+        <div class="flex items-center space-x-2">
+          <button onclick="promptInstallPwa()" class="bg-brand-600 hover:bg-brand-500 text-white font-bold px-3 py-1.5 rounded-lg active:scale-95 transition shadow text-[11px] whitespace-nowrap">
+            Install ➕
+          </button>
+          <button onclick="dismissInstallBanner()" class="text-dark-muted hover:text-white px-1.5 py-1 text-sm font-bold" title="Dismiss">&times;</button>
+        </div>
+      </div>
+
       <!-- High-Level Metric Cards Grid -->
       <div class="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-6 gap-2.5">
         <!-- Total Tracked -->
@@ -245,11 +279,65 @@
 
     <!-- 2. DEVICES VIEW -->
     <div id="viewDevices" class="hidden space-y-3">
+      <!-- Devices Header Toolbar (Home Button & Fast Access) -->
+      <div class="flex items-center justify-between bg-dark-surface border border-dark-border rounded-xl px-3 py-2 text-xs shadow-sm">
+        <div class="flex items-center space-x-2">
+          <button onclick="switchTab('Dashboard')" class="bg-dark-card hover:bg-dark-border text-white px-2.5 py-1.5 rounded-lg border border-dark-border font-semibold flex items-center space-x-1.5 active:scale-95 transition shadow-sm" title="Return to Dashboard / Home Screen">
+            <span>🏠 Home Screen</span>
+          </button>
+          <span class="text-dark-muted">|</span>
+          <span class="font-bold text-white text-xs">Categories & Filters</span>
+        </div>
+        <div class="flex items-center space-x-2">
+          <button onclick="promptInstallPwa()" class="text-brand-500 hover:text-brand-400 text-[11px] font-semibold flex items-center space-x-1" title="Add app to phone home screen">
+            <span>📲 Add to Home</span>
+          </button>
+        </div>
+      </div>
+
       <!-- Search and Filter Bar -->
       <div class="bg-dark-surface border border-dark-border rounded-xl p-3 space-y-2.5">
+        <!-- Search Input with Clear Button -->
         <div class="relative">
-          <input type="text" id="deviceSearchInput" oninput="debounceDeviceSearch()" placeholder="Search serial, model, color..." class="w-full bg-dark-main border border-dark-border rounded-lg pl-9 pr-3 py-2 text-xs text-white placeholder-dark-muted focus:outline-none focus:border-brand-500">
+          <input type="text" id="deviceSearchInput" oninput="onDeviceSearchInput(this.value)" placeholder="Search serial, model, color, RAM/storage, notes..." class="w-full bg-dark-main border border-dark-border rounded-lg pl-9 pr-8 py-2 text-xs text-white placeholder-dark-muted focus:outline-none focus:border-brand-500 font-mono">
           <svg class="w-4 h-4 text-dark-muted absolute left-3 top-2.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z"/></svg>
+          <button id="btnClearSearch" onclick="clearDeviceSearch()" class="hidden absolute right-2.5 top-2 text-dark-muted hover:text-white text-sm font-bold w-5 h-5 flex items-center justify-center rounded-full bg-dark-card hover:bg-dark-border" title="Clear search">&times;</button>
+        </div>
+
+        <!-- Category Dropdowns (Model, Specs, Color) -->
+        <div class="grid grid-cols-1 sm:grid-cols-3 gap-2 text-xs pt-0.5">
+          <!-- Model Filter -->
+          <div>
+            <label class="block text-[10px] uppercase font-bold text-dark-muted mb-1 flex items-center justify-between">
+              <span>📱 Model</span>
+              <span id="labelCountModel" class="text-[9px] text-brand-500 font-mono"></span>
+            </label>
+            <select id="deviceFilterModel" onchange="onCategoryFilterChange()" class="w-full bg-dark-main border border-dark-border rounded-lg px-2.5 py-1.5 text-xs text-white focus:border-brand-500">
+              <option value="all">All Models</option>
+            </select>
+          </div>
+
+          <!-- Specs Filter -->
+          <div>
+            <label class="block text-[10px] uppercase font-bold text-dark-muted mb-1 flex items-center justify-between">
+              <span>💾 Specs / RAM</span>
+              <span id="labelCountSpecs" class="text-[9px] text-brand-500 font-mono"></span>
+            </label>
+            <select id="deviceFilterSpecs" onchange="onCategoryFilterChange()" class="w-full bg-dark-main border border-dark-border rounded-lg px-2.5 py-1.5 text-xs text-white focus:border-brand-500">
+              <option value="all">All Specs</option>
+            </select>
+          </div>
+
+          <!-- Color Filter -->
+          <div>
+            <label class="block text-[10px] uppercase font-bold text-dark-muted mb-1 flex items-center justify-between">
+              <span>🎨 Color</span>
+              <span id="labelCountColor" class="text-[9px] text-brand-500 font-mono"></span>
+            </label>
+            <select id="deviceFilterColor" onchange="onCategoryFilterChange()" class="w-full bg-dark-main border border-dark-border rounded-lg px-2.5 py-1.5 text-xs text-white focus:border-brand-500">
+              <option value="all">All Colors</option>
+            </select>
+          </div>
         </div>
 
         <!-- Groups Horizontal Tabs -->
@@ -266,6 +354,11 @@
           <button onclick="setFilterStatus('Not Run')" id="filterBtn_NotRun" class="px-2.5 py-1 rounded-md font-semibold bg-dark-card text-blue-400 hover:text-blue-300 text-[11px]">Not Run</button>
           <button onclick="setFilterStatus('Error')" id="filterBtn_Error" class="px-2.5 py-1 rounded-md font-semibold bg-dark-card text-dark-muted hover:text-white text-[11px]">Errors</button>
           <button onclick="setFilterNewlyActivated()" id="filterBtn_Newly" class="px-2.5 py-1 rounded-md font-semibold bg-dark-card text-amber-400 hover:text-amber-300 text-[11px]">🔥 Detected Today</button>
+        </div>
+
+        <!-- Active Filter Chips Bar -->
+        <div id="activeFiltersContainer" class="hidden flex flex-wrap items-center gap-1.5 pt-1 border-t border-dark-border/50 text-xs">
+          <!-- Populated by JS: [Model: OPPO A6x ✕] [Color: Ice Blue ✕] [Reset All Filters] -->
         </div>
       </div>
 
@@ -502,6 +595,28 @@
         </div>
       </div>
 
+      <!-- Add to Home Screen / Mobile App Section -->
+      <div class="bg-dark-surface border border-dark-border rounded-xl p-4 space-y-3">
+        <div class="flex items-center justify-between">
+          <div>
+            <h2 class="text-sm font-bold text-white flex items-center space-x-1.5">
+              <span>📱 Mobile App & Home Screen</span>
+            </h2>
+            <p class="text-xs text-dark-muted">Install this app to your phone or desktop home screen.</p>
+          </div>
+          <span class="text-xs bg-brand-500/10 text-brand-400 font-bold px-2 py-0.5 rounded border border-brand-500/20">PWA</span>
+        </div>
+        <div class="p-3 bg-dark-main rounded-lg border border-dark-border text-xs text-dark-text flex items-center justify-between">
+          <div>
+            <div class="font-bold text-white">1-Tap Fast Launch</div>
+            <div class="text-[11px] text-dark-muted">Runs in full screen without browser URL bars.</div>
+          </div>
+          <button onclick="promptInstallPwa()" class="bg-brand-600 hover:bg-brand-500 text-white font-bold px-3 py-1.5 rounded-lg active:scale-95 transition shadow text-xs flex items-center space-x-1.5">
+            <span>📲 Add to Home</span>
+          </button>
+        </div>
+      </div>
+
       <!-- Save Settings Button -->
       <button onclick="saveAllSettings()" class="w-full bg-brand-600 hover:bg-brand-500 text-white font-bold py-3 rounded-xl shadow-lg shadow-brand-600/20 active:scale-95 transition">
         💾 Save Settings
@@ -512,10 +627,10 @@
 
   <!-- BOTTOM MOBILE NAVIGATION BAR -->
   <nav class="fixed bottom-0 left-0 right-0 z-40 bg-dark-surface/95 backdrop-blur-lg border-t border-dark-border px-2 py-1.5 flex items-center justify-around">
-    <!-- Dashboard -->
+    <!-- Home / Dashboard -->
     <button onclick="switchTab('Dashboard')" id="tabBtn_Dashboard" class="flex flex-col items-center py-1 px-3 text-brand-500 transition">
       <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M3 12l2-2m0 0l7-7 7 7M5 10v10a1 1 0 001 1h3m10-11l2 2m-2-2v10a1 1 0 01-1 1h-3m-6 0a1 1 0 001-1v-4a1 1 0 011-1h2a1 1 0 011 1v4a1 1 0 001 1m-6 0h6"/></svg>
-      <span class="text-[10px] font-semibold mt-0.5">Dashboard</span>
+      <span class="text-[10px] font-semibold mt-0.5">Home</span>
     </button>
     <!-- Devices -->
     <button onclick="switchTab('Devices')" id="tabBtn_Devices" class="flex flex-col items-center py-1 px-3 text-dark-muted hover:text-white transition">
@@ -582,6 +697,47 @@
         <button onclick="closeAddModal()" class="px-4 py-2 text-xs font-semibold text-dark-muted hover:text-white">Cancel</button>
         <button onclick="submitAddDevices()" id="btnSubmitAddDevices" class="px-5 py-2 text-xs font-bold bg-brand-600 hover:bg-brand-500 text-white rounded-lg active:scale-95 shadow">Save Devices</button>
       </div>
+    </div>
+  </div>
+
+  <!-- PWA INSTALL INSTRUCTIONS MODAL -->
+  <div id="modalPwaInstall" class="hidden fixed inset-0 z-50 bg-black/75 backdrop-blur-sm flex items-center justify-center p-4">
+    <div class="bg-dark-surface border border-dark-border rounded-2xl w-full max-w-sm p-5 space-y-4 shadow-2xl text-center">
+      <div class="w-12 h-12 rounded-2xl bg-gradient-to-tr from-brand-600 to-brand-500 mx-auto flex items-center justify-center shadow-lg shadow-brand-500/30 text-2xl">
+        📲
+      </div>
+      <div>
+        <h3 class="text-base font-bold text-white">Add to Home Screen</h3>
+        <p class="text-xs text-dark-muted mt-1">Install the OPPO Sales Monitor directly onto your phone for 1-tap instant access.</p>
+      </div>
+
+      <div class="text-left bg-dark-main border border-dark-border rounded-xl p-3.5 space-y-2.5 text-xs">
+        <div class="font-bold text-white text-[11px] uppercase tracking-wider text-brand-400">iOS (iPhone Safari):</div>
+        <div class="flex items-start space-x-2 text-dark-text">
+          <span class="font-bold text-white">1.</span>
+          <span>Tap the <b class="text-white">Share button</b> (<span class="font-mono">⎋</span> square with arrow at the bottom).</span>
+        </div>
+        <div class="flex items-start space-x-2 text-dark-text">
+          <span class="font-bold text-white">2.</span>
+          <span>Scroll down and tap <b class="text-emerald-400">"Add to Home Screen" ➕</b>.</span>
+        </div>
+
+        <div class="border-t border-dark-border/60 my-2"></div>
+
+        <div class="font-bold text-white text-[11px] uppercase tracking-wider text-brand-400">Android (Chrome / Edge / Samsung):</div>
+        <div class="flex items-start space-x-2 text-dark-text">
+          <span class="font-bold text-white">1.</span>
+          <span>Tap the browser menu (<b class="text-white">⋮</b> 3 dots in upper-right corner).</span>
+        </div>
+        <div class="flex items-start space-x-2 text-dark-text">
+          <span class="font-bold text-white">2.</span>
+          <span>Select <b class="text-emerald-400">"Add to Home screen"</b> or <b class="text-emerald-400">"Install app"</b>.</span>
+        </div>
+      </div>
+
+      <button onclick="closePwaModal()" class="w-full bg-brand-600 hover:bg-brand-500 text-white font-bold py-2.5 rounded-xl active:scale-95 transition text-xs shadow">
+        Got it!
+      </button>
     </div>
   </div>
 

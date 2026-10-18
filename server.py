@@ -95,21 +95,33 @@ def get_stats() -> dict[str, Any]:
     return stats
 
 
+@app.get("/api/devices/filter-options")
+def get_device_filter_options() -> dict[str, Any]:
+    """Retrieve distinct models, colors, specs, and groups for device filtering."""
+    return database.get_device_filter_options()
+
+
 @app.get("/api/devices")
 def list_devices(
-    search: str = Query("", description="Search term for serial, model, color"),
+    search: str = Query("", description="Search term for serial, model, color, specs"),
     group: str = Query("", description="Filter by group name"),
-    status: str = Query("", description="Filter: Active, Inactive, Pending, Error"),
+    status: str = Query("", description="Filter: Active, Inactive, Pending, Error, Not Run"),
+    model: str = Query("", description="Filter by device model"),
+    color: str = Query("", description="Filter by color"),
+    specs: str = Query("", description="Filter by specs"),
     newly_activated: bool = Query(False, description="Filter newly activated devices in last 24h"),
     page: int = Query(1, ge=1),
     limit: int = Query(50, ge=1, le=500),
 ) -> dict[str, Any]:
-    """List devices with search, group filter, status filter, and pagination."""
+    """List devices with search, group filter, status filter, category filters, and pagination."""
     offset = (page - 1) * limit
     devices, total = database.get_devices(
         search=search,
         group_name=group,
         status_filter=status,
+        model=model,
+        color=color,
+        specs=specs,
         newly_activated_only=newly_activated,
         limit=limit,
         offset=offset,

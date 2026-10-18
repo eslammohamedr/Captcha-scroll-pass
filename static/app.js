@@ -10,6 +10,10 @@ let state = {
   selectedGroup: 'all',
   statusFilter: 'all',
   newlyActivatedFilter: false,
+  modelFilter: 'all',
+  specsFilter: 'all',
+  colorFilter: 'all',
+  filterOptions: { models: [], colors: [], specs: [], groups: [] },
   searchQuery: '',
   page: 1,
   limit: 25,
@@ -21,7 +25,8 @@ let state = {
   searchTimeout: null,
   cameraStream: null,
   isScanning: false,
-  scannedQueue: []
+  scannedQueue: [],
+  deferredInstallPrompt: null
 };
 
 // --- Initialization ---
@@ -31,8 +36,12 @@ document.addEventListener('DOMContentLoaded', () => {
     navigator.serviceWorker.register('/static/sw.js').catch(() => {});
   }
 
+  // Setup PWA Home Screen Install prompt listener
+  initPwaInstall();
+
   loadDashboardStats();
   loadGroups();
+  loadFilterOptions();
   loadDevices();
   loadSettings();
   loadReportsHistory();
@@ -67,6 +76,66 @@ function switchTab(tabName) {
   } else if (tabName !== 'Scanner' && state.cameraStream) {
     stopCamera();
   }
+}
+
+// --- PWA Add to Home Screen Handling ---
+function initPwaInstall() {
+  window.addEventListener('beforeinstallprompt', (e) => {
+    e.preventDefault();
+    state.deferredInstallPrompt = e;
+    const btnHeader = document.getElementById('btnInstallPwaHeader');
+    const banner = document.getElementById('pwaInstallBanner');
+    if (btnHeader) btnHeader.classList.remove('hidden');
+    if (banner && !sessionStorage.getItem('pwa_banner_dismissed')) {
+      banner.classList.remove('hidden');
+    }
+  });
+
+  window.addEventListener('appinstalled', () => {
+    state.deferredInstallPrompt = null;
+    const btnHeader = document.getElementById('btnInstallPwaHeader');
+    const banner = document.getElementById('pwaInstallBanner');
+    if (btnHeader) btnHeader.classList.add('hidden');
+    if (banner) banner.classList.add('hidden');
+    showToast('OPPO Sales Monitor added to Home Screen! 🎉', 'success');
+  });
+
+  // If already running in standalone PWA mode, hide the banner
+  if (window.matchMedia('(display-mode: standalone)').matches || window.navigator.standalone === true) {
+    const banner = document.getElementById('pwaInstallBanner');
+    if (banner) banner.classList.add('hidden');
+  }
+}
+
+function promptInstallPwa() {
+  if (state.deferredInstallPrompt) {
+    state.deferredInstallPrompt.prompt();
+    state.deferredInstallPrompt.userChoice.then((choiceResult) => {
+      if (choiceResult && choiceResult.outcome === 'accepted') {
+        showToast('Installing OPPO Monitor to Home Screen...', 'success');
+      }
+      state.deferredInstallPrompt = null;
+    });
+  } else {
+    // Show manual step-by-step modal for iOS Safari / desktop
+    openPwaModal();
+  }
+}
+
+function openPwaModal() {
+  const modal = document.getElementById('modalPwaInstall');
+  if (modal) modal.classList.remove('hidden');
+}
+
+function closePwaModal() {
+  const modal = document.getElementById('modalPwaInstall');
+  if (modal) modal.classList.add('hidden');
+}
+
+function dismissInstallBanner() {
+  const banner = document.getElementById('pwaInstallBanner');
+  if (banner) banner.classList.add('hidden');
+  sessionStorage.setItem('pwa_banner_dismissed', '1');
 }
 
 // --- Status Polling & Live Floating Banner ---
@@ -335,6 +404,7 @@ function setFilterGroup(groupName) {
   state.selectedGroup = groupName;
   state.page = 1;
   loadGroups();
+  renderActiveFilterChips();
   loadDevices();
 }
 
@@ -371,11 +441,246 @@ async function openNewGroupPrompt() {
 }
 
 // --- Devices Listing & Filtering ---
+async function loadFilterOptions() {
+  try {
+    const res = await fetch('/api/devices/filter-options');
+    if (!res.ok) return;
+    const data = await res.json();
+    state.filterOptions = data;
+
+    // Populate Model dropdown
+    const modelSelect = document.getElementById('deviceFilterModel');
+    if (modelSelect) {
+      let modelHtml = '<option value="all">All Models</option>';
+      if (data.models && data.models.length > 0) {
+        data.models.forEach(m => {
+          modelHtml += `<option value="${escapeHtml(m.name)}" ${state.modelFilter === m.name ? 'selected' : ''}>${escapeHtml(m.name)} (${m.count})</option>`;
+        });
+      }
+      modelSelect.innerHTML = modelHtml;
+      const countModel = document.getElementById('labelCountModel');
+      if (countModel) countModel.innerText = `(${data.models.length})`;
+    }
+
+    // Populate Specs dropdown
+    const specsSelect = document.getElementById('deviceFilterSpecs');
+    if (specsSelect) {
+      let specsHtml = '<option value="all">All Specs</option>';
+      if (data.specs && data.specs.length > 0) {
+        data.specs.forEach(s => {
+          specsHtml += `<option value="${escapeHtml(s.name)}" ${state.specsFilter === s.name ? 'selected' : ''}>${escapeHtml(s.name)} (${s.count})</option>`;
+        });
+      }
+      specsSelect.innerHTML = specsHtml;
+      const countSpecs = document.getElementById('labelCountSpecs');
+      if (countSpecs) countSpecs.innerText = `(${data.specs.length})`;
+    }
+
+    // Populate Color dropdown
+    const colorSelect = document.getElementById('deviceFilterColor');
+    if (colorSelect) {
+      let colorHtml = '<option value="all">All Colors</option>';
+      if (data.colors && data.colors.length > 0) {
+        data.colors.forEach(c => {
+          colorHtml += `<option value="${escapeHtml(c.name)}" ${state.colorFilter === c.name ? 'selected' : ''}>${escapeHtml(c.name)} (${c.count})</option>`;
+        });
+      }
+      colorSelect.innerHTML = colorHtml;
+      const countColor = document.getElementById('labelCountColor');
+      if (countColor) countColor.innerText = `(${data.colors.length})`;
+    }
+  } catch (e) {}
+}
+
+function onCategoryFilterChange() {
+  const modelSel = document.getElementById('deviceFilterModel');
+  const specsSel = document.getElementById('deviceFilterSpecs');
+  const colorSel = document.getElementById('deviceFilterColor');
+
+  if (modelSel) state.modelFilter = modelSel.value;
+  if (specsSel) state.specsFilter = specsSel.value;
+  if (colorSel) state.colorFilter = colorSel.value;
+
+  state.page = 1;
+  renderActiveFilterChips();
+  loadDevices();
+}
+
+function onDeviceSearchInput(val) {
+  const clearBtn = document.getElementById('btnClearSearch');
+  if (clearBtn) {
+    if (val && val.trim().length > 0) {
+      clearBtn.classList.remove('hidden');
+    } else {
+      clearBtn.classList.add('hidden');
+    }
+  }
+  clearTimeout(state.searchTimeout);
+  state.searchTimeout = setTimeout(() => {
+    state.searchQuery = val.trim();
+    state.page = 1;
+    renderActiveFilterChips();
+    loadDevices();
+  }, 250);
+}
+
+function clearDeviceSearch() {
+  const input = document.getElementById('deviceSearchInput');
+  if (input) input.value = '';
+  const clearBtn = document.getElementById('btnClearSearch');
+  if (clearBtn) clearBtn.classList.add('hidden');
+  state.searchQuery = '';
+  state.page = 1;
+  renderActiveFilterChips();
+  loadDevices();
+}
+
+function renderActiveFilterChips() {
+  const container = document.getElementById('activeFiltersContainer');
+  if (!container) return;
+
+  const chips = [];
+
+  if (state.searchQuery) {
+    chips.push(`
+      <span class="inline-flex items-center space-x-1 px-2 py-0.5 rounded-md bg-dark-card border border-dark-border text-white text-[11px]">
+        <span>🔍 "${escapeHtml(state.searchQuery)}"</span>
+        <button onclick="clearDeviceSearch()" class="text-dark-muted hover:text-red-400 font-bold ml-1">&times;</button>
+      </span>
+    `);
+  }
+
+  if (state.modelFilter && state.modelFilter !== 'all') {
+    chips.push(`
+      <span class="inline-flex items-center space-x-1 px-2 py-0.5 rounded-md bg-brand-600/20 border border-brand-500/40 text-brand-400 text-[11px]">
+        <span>📱 ${escapeHtml(state.modelFilter)}</span>
+        <button onclick="removeFilter('model')" class="text-brand-300 hover:text-white font-bold ml-1">&times;</button>
+      </span>
+    `);
+  }
+
+  if (state.specsFilter && state.specsFilter !== 'all') {
+    chips.push(`
+      <span class="inline-flex items-center space-x-1 px-2 py-0.5 rounded-md bg-blue-500/20 border border-blue-500/40 text-blue-400 text-[11px]">
+        <span>💾 ${escapeHtml(state.specsFilter)}</span>
+        <button onclick="removeFilter('specs')" class="text-blue-300 hover:text-white font-bold ml-1">&times;</button>
+      </span>
+    `);
+  }
+
+  if (state.colorFilter && state.colorFilter !== 'all') {
+    chips.push(`
+      <span class="inline-flex items-center space-x-1 px-2 py-0.5 rounded-md bg-purple-500/20 border border-purple-500/40 text-purple-400 text-[11px]">
+        <span>🎨 ${escapeHtml(state.colorFilter)}</span>
+        <button onclick="removeFilter('color')" class="text-purple-300 hover:text-white font-bold ml-1">&times;</button>
+      </span>
+    `);
+  }
+
+  if (state.selectedGroup && state.selectedGroup !== 'all') {
+    chips.push(`
+      <span class="inline-flex items-center space-x-1 px-2 py-0.5 rounded-md bg-dark-card border border-dark-border text-white text-[11px]">
+        <span>📁 ${escapeHtml(state.selectedGroup)}</span>
+        <button onclick="removeFilter('group')" class="text-dark-muted hover:text-red-400 font-bold ml-1">&times;</button>
+      </span>
+    `);
+  }
+
+  if (state.statusFilter && state.statusFilter !== 'all') {
+    chips.push(`
+      <span class="inline-flex items-center space-x-1 px-2 py-0.5 rounded-md bg-dark-card border border-dark-border text-white text-[11px]">
+        <span>🏷️ ${escapeHtml(state.statusFilter)}</span>
+        <button onclick="removeFilter('status')" class="text-dark-muted hover:text-red-400 font-bold ml-1">&times;</button>
+      </span>
+    `);
+  }
+
+  if (state.newlyActivatedFilter) {
+    chips.push(`
+      <span class="inline-flex items-center space-x-1 px-2 py-0.5 rounded-md bg-amber-500/20 border border-amber-500/40 text-amber-400 text-[11px]">
+        <span>🔥 Detected Today</span>
+        <button onclick="removeFilter('newly')" class="text-amber-300 hover:text-white font-bold ml-1">&times;</button>
+      </span>
+    `);
+  }
+
+  if (chips.length > 0) {
+    container.classList.remove('hidden');
+    container.innerHTML = `
+      <span class="text-[10px] text-dark-muted font-semibold uppercase mr-1">Active:</span>
+      ${chips.join('')}
+      <button onclick="resetAllFilters()" class="text-[11px] font-bold text-red-400 hover:text-red-300 hover:underline px-1 py-0.5 ml-1">
+        Reset All ✕
+      </button>
+    `;
+  } else {
+    container.classList.add('hidden');
+    container.innerHTML = '';
+  }
+}
+
+function removeFilter(type) {
+  if (type === 'model') {
+    state.modelFilter = 'all';
+    const sel = document.getElementById('deviceFilterModel');
+    if (sel) sel.value = 'all';
+  } else if (type === 'specs') {
+    state.specsFilter = 'all';
+    const sel = document.getElementById('deviceFilterSpecs');
+    if (sel) sel.value = 'all';
+  } else if (type === 'color') {
+    state.colorFilter = 'all';
+    const sel = document.getElementById('deviceFilterColor');
+    if (sel) sel.value = 'all';
+  } else if (type === 'group') {
+    state.selectedGroup = 'all';
+    loadGroups();
+  } else if (type === 'status') {
+    state.statusFilter = 'all';
+    updateFilterButtons();
+  } else if (type === 'newly') {
+    state.newlyActivatedFilter = false;
+    updateFilterButtons();
+  }
+  state.page = 1;
+  renderActiveFilterChips();
+  loadDevices();
+}
+
+function resetAllFilters() {
+  state.searchQuery = '';
+  state.modelFilter = 'all';
+  state.specsFilter = 'all';
+  state.colorFilter = 'all';
+  state.statusFilter = 'all';
+  state.selectedGroup = 'all';
+  state.newlyActivatedFilter = false;
+  state.page = 1;
+
+  const input = document.getElementById('deviceSearchInput');
+  if (input) input.value = '';
+  const clearBtn = document.getElementById('btnClearSearch');
+  if (clearBtn) clearBtn.classList.add('hidden');
+
+  const modelSel = document.getElementById('deviceFilterModel');
+  if (modelSel) modelSel.value = 'all';
+  const specsSel = document.getElementById('deviceFilterSpecs');
+  if (specsSel) specsSel.value = 'all';
+  const colorSel = document.getElementById('deviceFilterColor');
+  if (colorSel) colorSel.value = 'all';
+
+  updateFilterButtons();
+  loadGroups();
+  renderActiveFilterChips();
+  loadDevices();
+}
+
 function setFilterStatus(status) {
   state.statusFilter = status;
   state.newlyActivatedFilter = false;
   state.page = 1;
   updateFilterButtons();
+  renderActiveFilterChips();
   loadDevices();
 }
 
@@ -384,6 +689,7 @@ function setFilterNewlyActivated() {
   state.statusFilter = 'all';
   state.page = 1;
   updateFilterButtons();
+  renderActiveFilterChips();
   loadDevices();
 }
 
@@ -434,8 +740,9 @@ function debounceDeviceSearch() {
   state.searchTimeout = setTimeout(() => {
     state.searchQuery = document.getElementById('deviceSearchInput').value.trim();
     state.page = 1;
+    renderActiveFilterChips();
     loadDevices();
-  }, 300);
+  }, 250);
 }
 
 async function loadDevices() {
@@ -446,6 +753,9 @@ async function loadDevices() {
     search: state.searchQuery,
     group: state.selectedGroup,
     status: state.statusFilter,
+    model: state.modelFilter === 'all' ? '' : state.modelFilter,
+    specs: state.specsFilter === 'all' ? '' : state.specsFilter,
+    color: state.colorFilter === 'all' ? '' : state.colorFilter,
     newly_activated: state.newlyActivatedFilter ? 'true' : 'false',
     page: state.page,
     limit: state.limit

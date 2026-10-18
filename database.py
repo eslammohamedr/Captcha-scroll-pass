@@ -346,10 +346,62 @@ def mark_device_notified(serial: str) -> None:
         cur.execute("UPDATE devices SET notified_activation = 1 WHERE serial = ?;", (serial.strip().upper(),))
 
 
+def get_device_filter_options() -> dict[str, Any]:
+    """Retrieve distinct models, colors, specs, and groups with counts for filtering UI."""
+    with get_db_cursor() as cur:
+        cur.execute("""
+            SELECT model_name, COUNT(*) as count 
+            FROM devices 
+            WHERE model_name IS NOT NULL AND model_name != '' 
+            GROUP BY model_name 
+            ORDER BY count DESC, model_name ASC;
+        """)
+        models = [{"name": r["model_name"], "count": r["count"]} for r in cur.fetchall()]
+
+        cur.execute("""
+            SELECT color, COUNT(*) as count 
+            FROM devices 
+            WHERE color IS NOT NULL AND color != '' 
+            GROUP BY color 
+            ORDER BY count DESC, color ASC;
+        """)
+        colors = [{"name": r["color"], "count": r["count"]} for r in cur.fetchall()]
+
+        cur.execute("""
+            SELECT specs, COUNT(*) as count 
+            FROM devices 
+            WHERE specs IS NOT NULL AND specs != '' 
+            GROUP BY specs 
+            ORDER BY count DESC, specs ASC;
+        """)
+        specs = [{"name": r["specs"], "count": r["count"]} for r in cur.fetchall()]
+
+        cur.execute("""
+            SELECT g.name, 
+                   COUNT(d.id) as total_devices,
+                   SUM(CASE WHEN d.is_active = 'Yes' THEN 1 ELSE 0 END) as active_devices
+            FROM groups g
+            LEFT JOIN devices d ON g.name = d.group_name
+            GROUP BY g.name
+            ORDER BY g.name ASC;
+        """)
+        groups = [{"name": r["name"], "total": r["total_devices"], "active": r["active_devices"]} for r in cur.fetchall()]
+
+        return {
+            "models": models,
+            "colors": colors,
+            "specs": specs,
+            "groups": groups,
+        }
+
+
 def get_devices(
     search: str = "",
     group_name: str = "",
     status_filter: str = "",
+    model: str = "",
+    color: str = "",
+    specs: str = "",
     newly_activated_only: bool = False,
     limit: int = 100,
     offset: int = 0,
@@ -360,15 +412,42 @@ def get_devices(
     params: list[Any] = []
 
     if search.strip():
-        search_term = f"%{search.strip().upper()}%"
-        query += " AND (serial LIKE ? OR model_name LIKE ? OR color LIKE ?)"
-        count_query += " AND (serial LIKE ? OR model_name LIKE ? OR color LIKE ?)"
-        params.extend([search_term, search_term, search_term])
+        # Split search into terms so e.g. "A6x purple" matches across model and color
+        terms = [t.strip() for t in search.strip().split() if t.strip()]
+        for term in terms:
+            term_wildcard = f"%{term}%"
+            term_clause = """ AND (
+                serial LIKE ? OR 
+                model_name LIKE ? OR 
+                color LIKE ? OR 
+                specs LIKE ? OR 
+                certified_model LIKE ? OR 
+                region LIKE ? OR 
+                notes LIKE ?
+            )"""
+            query += term_clause
+            count_query += term_clause
+            params.extend([term_wildcard] * 7)
 
     if group_name.strip() and group_name.strip().lower() != "all":
         query += " AND group_name = ?"
         count_query += " AND group_name = ?"
         params.append(group_name.strip())
+
+    if model.strip() and model.strip().lower() != "all":
+        query += " AND model_name = ?"
+        count_query += " AND model_name = ?"
+        params.append(model.strip())
+
+    if color.strip() and color.strip().lower() != "all":
+        query += " AND color = ?"
+        count_query += " AND color = ?"
+        params.append(color.strip())
+
+    if specs.strip() and specs.strip().lower() != "all":
+        query += " AND specs = ?"
+        count_query += " AND specs = ?"
+        params.append(specs.strip())
 
     if status_filter.strip() and status_filter.strip().lower() != "all":
         stat = status_filter.strip()
