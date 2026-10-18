@@ -216,6 +216,9 @@ async function loadDashboardStats() {
     const btnErrCount = document.getElementById('dashBtnErrorsCount');
     if (btnErrCount) btnErrCount.innerText = data.errors || 0;
 
+    const btnPendingCount = document.getElementById('dashBtnPendingCount');
+    if (btnPendingCount) btnPendingCount.innerText = data.pending || 0;
+
     if (data.worker && data.worker.logs) {
       renderActivityLogs(data.worker.logs);
     }

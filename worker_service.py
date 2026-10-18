@@ -423,7 +423,8 @@ class WorkerService:
 
         active_cnt = sum(1 for d in final_devices_list if d.get("is_active") == "Yes")
         inactive_cnt = sum(1 for d in final_devices_list if d.get("is_active") == "No")
-        error_cnt = sum(1 for d in final_devices_list if d.get("status") in ["Error", "Captcha Failed", "No Response"])
+        pending_cnt = sum(1 for d in final_devices_list if d.get("is_active") == "Pending" or d.get("status") == "Pending")
+        error_cnt = sum(1 for d in final_devices_list if d.get("is_active") in ["Error", "Unknown"] or d.get("status") in ["Error", "Captcha Failed", "No Response"])
 
         summary = {
             "run_id": self.current_run_id,
@@ -433,6 +434,7 @@ class WorkerService:
             "newly_activated": len(newly_activated_devices),
             "active_count": active_cnt,
             "inactive_count": inactive_cnt,
+            "pending_count": pending_cnt,
             "error_count": error_cnt,
             "elapsed_seconds": int(total_time),
             "elapsed_str": elapsed_str,

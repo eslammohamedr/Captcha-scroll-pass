@@ -42,6 +42,9 @@ def _apply_sheet_styling(ws: Any, is_newly_activated_sheet: bool = False) -> Non
     inactive_fill = PatternFill(start_color="FFF8C5", end_color="FFF8C5", fill_type="solid")
     inactive_font = Font(name="Segoe UI", size=10, bold=True, color="9A6700")
 
+    pending_fill = PatternFill(start_color="F2EAFA", end_color="F2EAFA", fill_type="solid")
+    pending_font = Font(name="Segoe UI", size=10, bold=True, color="6B21A8")
+
     err_fill = PatternFill(start_color="FFEBE9", end_color="FFEBE9", fill_type="solid")
     err_font = Font(name="Segoe UI", size=10, bold=True, color="CF222E")
 
@@ -75,13 +78,17 @@ def _apply_sheet_styling(ws: Any, is_newly_activated_sheet: bool = False) -> Non
 
             # Highlight Active column
             if col_idx == active_col_idx:
-                if str(is_active_val) == "Yes":
+                act_str = str(is_active_val).strip()
+                if act_str == "Yes":
                     c.fill = active_fill
                     c.font = active_font
-                elif str(is_active_val) == "No":
+                elif act_str == "No":
                     c.fill = inactive_fill
                     c.font = inactive_font
-                elif str(is_active_val) in ["Error", "Captcha Failed"]:
+                elif act_str in ["Pending", "Pending Sync", "Syncing"]:
+                    c.fill = pending_fill
+                    c.font = pending_font
+                elif act_str in ["Error", "Captcha Failed", "Unknown", "No Response"]:
                     c.fill = err_fill
                     c.font = err_font
 

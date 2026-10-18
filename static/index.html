@@ -134,13 +134,18 @@
         </div>
 
         <!-- Pending Activation / Sync -->
-        <div onclick="switchTab('Devices'); setFilterStatus('Pending');" class="bg-gradient-to-br from-purple-950/40 to-dark-surface border border-purple-500/30 hover:border-purple-400 cursor-pointer rounded-xl p-3 flex flex-col justify-between shadow-sm transition active:scale-95">
-          <div class="flex items-center justify-between">
+        <div class="bg-gradient-to-br from-purple-950/40 to-dark-surface border border-purple-500/30 hover:border-purple-400 rounded-xl p-3 flex flex-col justify-between shadow-sm transition">
+          <div class="flex items-center justify-between cursor-pointer" onclick="switchTab('Devices'); setFilterStatus('Pending');">
             <span class="text-xs font-bold text-purple-400">Pending Sync</span>
             <span class="p-1 rounded-lg bg-purple-500/10 text-purple-400 font-bold">🔄</span>
           </div>
-          <div class="text-2xl font-black text-purple-400 mt-1.5" id="metricPending">0</div>
-          <span class="text-[10px] text-purple-400/80 font-medium">In system transfer</span>
+          <div class="text-2xl font-black text-purple-400 mt-1 cursor-pointer" onclick="switchTab('Devices'); setFilterStatus('Pending');" id="metricPending">0</div>
+          <div class="mt-1 flex items-center justify-between pt-0.5">
+            <span class="text-[10px] text-purple-400/80 font-medium">In system transfer</span>
+            <button onclick="event.stopPropagation(); triggerRun('pending_sync');" title="Check only devices waiting on system sync" class="text-[10px] font-bold text-purple-300 hover:text-white bg-purple-500/20 hover:bg-purple-600 px-2 py-0.5 rounded transition active:scale-95 flex items-center space-x-1">
+              <span>Check ⚡</span>
+            </button>
+          </div>
         </div>
 
         <!-- Detected Active Today -->
@@ -210,17 +215,17 @@
 
       <!-- Quick Action Buttons Row -->
       <div class="bg-dark-surface border border-dark-border rounded-xl p-3 flex flex-wrap gap-2">
-        <button onclick="triggerRun('pending_only')" class="flex-1 min-w-[130px] bg-emerald-600 hover:bg-emerald-500 text-white text-xs font-bold py-2.5 px-3 rounded-lg flex items-center justify-center space-x-1.5 transition active:scale-95 shadow">
-          <span>⚡ Check Pending</span>
+        <button onclick="triggerRun('pending_only')" class="flex-1 min-w-[130px] bg-emerald-600 hover:bg-emerald-500 text-white text-xs font-bold py-2.5 px-3 rounded-lg flex items-center justify-center space-x-1.5 transition active:scale-95 shadow" title="Check all unactivated devices">
+          <span>⚡ Check Unactivated</span>
         </button>
-        <button onclick="triggerRunErrorsOnly()" class="flex-1 min-w-[130px] bg-red-950/40 hover:bg-red-900/60 text-red-400 hover:text-red-300 border border-red-500/30 text-xs font-bold py-2.5 px-3 rounded-lg flex items-center justify-center space-x-1.5 transition active:scale-95">
-          <span>⚠️ Retry Errors (<span id="dashBtnErrorsCount">18</span>)</span>
+        <button onclick="triggerRun('pending_sync')" class="flex-1 min-w-[130px] bg-purple-950/40 hover:bg-purple-900/60 text-purple-400 hover:text-purple-300 border border-purple-500/30 text-xs font-bold py-2.5 px-3 rounded-lg flex items-center justify-center space-x-1.5 transition active:scale-95" title="Check only devices in Pending Sync state">
+          <span>🔄 Pending Sync (<span id="dashBtnPendingCount">68</span>)</span>
         </button>
-        <button onclick="triggerRun('all')" class="flex-1 min-w-[130px] bg-dark-card hover:bg-dark-border text-white text-xs font-semibold py-2.5 px-3 rounded-lg flex items-center justify-center space-x-1.5 transition active:scale-95">
-          <span>🔄 Run Full Database</span>
+        <button onclick="triggerRunErrorsOnly()" class="flex-1 min-w-[130px] bg-red-950/40 hover:bg-red-900/60 text-red-400 hover:text-red-300 border border-red-500/30 text-xs font-bold py-2.5 px-3 rounded-lg flex items-center justify-center space-x-1.5 transition active:scale-95" title="Retry only failed checks / captcha errors">
+          <span>⚠️ Retry Errors (<span id="dashBtnErrorsCount">16</span>)</span>
         </button>
-        <button onclick="openAddModal()" class="bg-dark-card hover:bg-dark-border text-brand-500 text-xs font-semibold py-2.5 px-3 rounded-lg flex items-center justify-center space-x-1.5 transition active:scale-95">
-          <span>➕ Add Serials</span>
+        <button onclick="triggerRun('all')" class="flex-1 min-w-[130px] bg-dark-card hover:bg-dark-border text-white text-xs font-semibold py-2.5 px-3 rounded-lg flex items-center justify-center space-x-1.5 transition active:scale-95" title="Check all 696 devices in database">
+          <span>🌐 Run Full Database</span>
         </button>
       </div>
 

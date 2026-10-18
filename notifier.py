@@ -151,6 +151,7 @@ def notify_run_completion(
     newly_act = summary.get("newly_activated", 0)
     active_cnt = summary.get("active_count", 0)
     inactive_cnt = summary.get("inactive_count", 0)
+    pending_cnt = summary.get("pending_count", 0)
     errors_cnt = summary.get("error_count", 0)
     time_str = summary.get("elapsed_str", "")
 
@@ -165,7 +166,8 @@ def notify_run_completion(
         f"✅ <b>Total Active:</b> {active_cnt}\n"
         f"{newly_line}"
         f"⏳ <b>Still Inactive:</b> {inactive_cnt}\n"
-        f"⚠️ <b>Errors / Unresolved:</b> {errors_cnt}\n\n"
+        f"🔄 <b>Pending Sync:</b> {pending_cnt}\n"
+        f"⚠️ <b>Check Errors (Failed):</b> {errors_cnt}\n\n"
         "📎 <i>Full reports attached below.</i>"
     )
 
