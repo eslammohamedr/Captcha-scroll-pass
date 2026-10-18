@@ -387,11 +387,24 @@ def get_device_filter_options() -> dict[str, Any]:
         """)
         groups = [{"name": r["name"], "total": r["total_devices"], "active": r["active_devices"]} for r in cur.fetchall()]
 
+        cur.execute("""
+            SELECT activation_date, COUNT(*) as count 
+            FROM devices 
+            WHERE is_active = 'Yes' 
+              AND activation_date IS NOT NULL 
+              AND activation_date != '' 
+              AND activation_date NOT IN ('Not Activated', 'Pending Sync', 'Unknown')
+            GROUP BY activation_date 
+            ORDER BY count DESC;
+        """)
+        activation_dates = [{"name": r["activation_date"], "count": r["count"]} for r in cur.fetchall()]
+
         return {
             "models": models,
             "colors": colors,
             "specs": specs,
             "groups": groups,
+            "activation_dates": activation_dates,
         }
 
 
@@ -402,6 +415,7 @@ def get_devices(
     model: str = "",
     color: str = "",
     specs: str = "",
+    activation_date: str = "",
     newly_activated_only: bool = False,
     limit: int = 100,
     offset: int = 0,
@@ -423,11 +437,12 @@ def get_devices(
                 specs LIKE ? OR 
                 certified_model LIKE ? OR 
                 region LIKE ? OR 
-                notes LIKE ?
+                notes LIKE ? OR
+                activation_date LIKE ?
             )"""
             query += term_clause
             count_query += term_clause
-            params.extend([term_wildcard] * 7)
+            params.extend([term_wildcard] * 8)
 
     if group_name.strip() and group_name.strip().lower() != "all":
         query += " AND group_name = ?"
@@ -448,6 +463,20 @@ def get_devices(
         query += " AND specs = ?"
         count_query += " AND specs = ?"
         params.append(specs.strip())
+
+    if activation_date.strip() and activation_date.strip().lower() != "all":
+        ad = activation_date.strip()
+        parts = ad.split("-")
+        if len(parts) == 3 and len(parts[0]) == 4:
+            # Convert YYYY-MM-DD (from datepicker) to DD-MM-YYYY
+            alt_ad = f"{parts[2]}-{parts[1]}-{parts[0]}"
+            query += " AND (activation_date LIKE ? OR activation_date LIKE ?)"
+            count_query += " AND (activation_date LIKE ? OR activation_date LIKE ?)"
+            params.extend([f"%{ad}%", f"%{alt_ad}%"])
+        else:
+            query += " AND activation_date LIKE ?"
+            count_query += " AND activation_date LIKE ?"
+            params.append(f"%{ad}%")
 
     if status_filter.strip() and status_filter.strip().lower() != "all":
         stat = status_filter.strip()

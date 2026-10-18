@@ -13,7 +13,8 @@ let state = {
   modelFilter: 'all',
   specsFilter: 'all',
   colorFilter: 'all',
-  filterOptions: { models: [], colors: [], specs: [], groups: [] },
+  activationDateFilter: 'all',
+  filterOptions: { models: [], colors: [], specs: [], groups: [], activation_dates: [] },
   searchQuery: '',
   page: 1,
   limit: 25,
@@ -664,6 +665,21 @@ async function loadFilterOptions() {
       const countColor = document.getElementById('labelCountColor');
       if (countColor) countColor.innerText = `(${data.colors.length})`;
     }
+
+    // Populate Activation Date dropdown
+    const actDateSelect = document.getElementById('deviceFilterActivationDate');
+    if (actDateSelect) {
+      let actDateHtml = '<option value="all">All Dates</option>';
+      if (data.activation_dates && data.activation_dates.length > 0) {
+        data.activation_dates.forEach(d => {
+          const cleanDate = d.name.replace(/\s*\(UTC[+-]?\d*\)/i, '').trim();
+          actDateHtml += `<option value="${escapeHtml(d.name)}" ${state.activationDateFilter === d.name ? 'selected' : ''}>${escapeHtml(cleanDate)} (${d.count})</option>`;
+        });
+      }
+      actDateSelect.innerHTML = actDateHtml;
+      const countActDate = document.getElementById('labelCountActivationDate');
+      if (countActDate) countActDate.innerText = `(${data.activation_dates.length})`;
+    }
   } catch (e) {}
 }
 
@@ -671,10 +687,12 @@ function onCategoryFilterChange() {
   const modelSel = document.getElementById('deviceFilterModel');
   const specsSel = document.getElementById('deviceFilterSpecs');
   const colorSel = document.getElementById('deviceFilterColor');
+  const actDateSel = document.getElementById('deviceFilterActivationDate');
 
   if (modelSel) state.modelFilter = modelSel.value;
   if (specsSel) state.specsFilter = specsSel.value;
   if (colorSel) state.colorFilter = colorSel.value;
+  if (actDateSel) state.activationDateFilter = actDateSel.value;
 
   state.page = 1;
   renderActiveFilterChips();
@@ -752,6 +770,16 @@ function renderActiveFilterChips() {
     `);
   }
 
+  if (state.activationDateFilter && state.activationDateFilter !== 'all') {
+    const cleanDate = state.activationDateFilter.replace(/\s*\(UTC[+-]?\d*\)/i, '').trim();
+    chips.push(`
+      <span class="inline-flex items-center space-x-1 px-2 py-0.5 rounded-md bg-emerald-500/20 border border-emerald-500/40 text-emerald-400 text-[11px]">
+        <span>📅 ${escapeHtml(cleanDate)}</span>
+        <button onclick="removeFilter('activation_date')" class="text-emerald-300 hover:text-white font-bold ml-1">&times;</button>
+      </span>
+    `);
+  }
+
   if (state.selectedGroup && state.selectedGroup !== 'all') {
     chips.push(`
       <span class="inline-flex items-center space-x-1 px-2 py-0.5 rounded-md bg-dark-card border border-dark-border text-white text-[11px]">
@@ -807,6 +835,10 @@ function removeFilter(type) {
     state.colorFilter = 'all';
     const sel = document.getElementById('deviceFilterColor');
     if (sel) sel.value = 'all';
+  } else if (type === 'activation_date') {
+    state.activationDateFilter = 'all';
+    const sel = document.getElementById('deviceFilterActivationDate');
+    if (sel) sel.value = 'all';
   } else if (type === 'group') {
     state.selectedGroup = 'all';
     loadGroups();
@@ -827,6 +859,7 @@ function resetAllFilters() {
   state.modelFilter = 'all';
   state.specsFilter = 'all';
   state.colorFilter = 'all';
+  state.activationDateFilter = 'all';
   state.statusFilter = 'all';
   state.selectedGroup = 'all';
   state.newlyActivatedFilter = false;
@@ -843,6 +876,8 @@ function resetAllFilters() {
   if (specsSel) specsSel.value = 'all';
   const colorSel = document.getElementById('deviceFilterColor');
   if (colorSel) colorSel.value = 'all';
+  const actDateSel = document.getElementById('deviceFilterActivationDate');
+  if (actDateSel) actDateSel.value = 'all';
 
   updateFilterButtons();
   loadGroups();
@@ -931,6 +966,7 @@ async function loadDevices() {
     model: state.modelFilter === 'all' ? '' : state.modelFilter,
     specs: state.specsFilter === 'all' ? '' : state.specsFilter,
     color: state.colorFilter === 'all' ? '' : state.colorFilter,
+    activation_date: state.activationDateFilter === 'all' ? '' : state.activationDateFilter,
     newly_activated: state.newlyActivatedFilter ? 'true' : 'false',
     page: state.page,
     limit: state.limit

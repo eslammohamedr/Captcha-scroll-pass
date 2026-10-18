@@ -310,8 +310,8 @@
           <button id="btnClearSearch" onclick="clearDeviceSearch()" class="hidden absolute right-2.5 top-2 text-dark-muted hover:text-white text-sm font-bold w-5 h-5 flex items-center justify-center rounded-full bg-dark-card hover:bg-dark-border" title="Clear search">&times;</button>
         </div>
 
-        <!-- Category Dropdowns (Model, Specs, Color) -->
-        <div class="grid grid-cols-1 sm:grid-cols-3 gap-2 text-xs pt-0.5">
+        <!-- Category Dropdowns (Model, Specs, Color, Activation Date) -->
+        <div class="grid grid-cols-2 sm:grid-cols-4 gap-2 text-xs pt-0.5">
           <!-- Model Filter -->
           <div>
             <label class="block text-[10px] uppercase font-bold text-dark-muted mb-1 flex items-center justify-between">
@@ -326,7 +326,7 @@
           <!-- Specs Filter -->
           <div>
             <label class="block text-[10px] uppercase font-bold text-dark-muted mb-1 flex items-center justify-between">
-              <span>💾 Specs / RAM</span>
+              <span>💾 Specs</span>
               <span id="labelCountSpecs" class="text-[9px] text-brand-500 font-mono"></span>
             </label>
             <select id="deviceFilterSpecs" onchange="onCategoryFilterChange()" class="w-full bg-dark-main border border-dark-border rounded-lg px-2.5 py-1.5 text-xs text-white focus:border-brand-500">
@@ -342,6 +342,17 @@
             </label>
             <select id="deviceFilterColor" onchange="onCategoryFilterChange()" class="w-full bg-dark-main border border-dark-border rounded-lg px-2.5 py-1.5 text-xs text-white focus:border-brand-500">
               <option value="all">All Colors</option>
+            </select>
+          </div>
+
+          <!-- Activation Date Filter -->
+          <div>
+            <label class="block text-[10px] uppercase font-bold text-dark-muted mb-1 flex items-center justify-between">
+              <span>📅 Activated</span>
+              <span id="labelCountActivationDate" class="text-[9px] text-brand-500 font-mono"></span>
+            </label>
+            <select id="deviceFilterActivationDate" onchange="onCategoryFilterChange()" class="w-full bg-dark-main border border-dark-border rounded-lg px-2.5 py-1.5 text-xs text-white focus:border-brand-500">
+              <option value="all">All Dates</option>
             </select>
           </div>
         </div>
