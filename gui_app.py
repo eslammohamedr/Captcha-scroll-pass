@@ -148,6 +148,7 @@ class OppoCheckerGUI:
         self.var_headful = tk.BooleanVar(value=True)       # Default: Chrome visible so user watches live solving!
         self.var_skip_verified = tk.BooleanVar(value=True) # Default: Skip already verified records
         self.var_threads = tk.IntVar(value=3)              # Default: 3 parallel worker threads
+        self.var_auto_recovery = tk.BooleanVar(value=True) # Default: Auto-recover failed serials at end of run
         self.var_delay = tk.DoubleVar(value=2.0)
         self.var_limit = tk.StringVar(value="")
         self.var_offset = tk.DoubleVar(value=0.0)
@@ -637,6 +638,32 @@ class OppoCheckerGUI:
         )
         lbl_threads_hint.pack(anchor=tk.W, padx=8, pady=(0, 4))
 
+        # Auto-recovery checkbox
+        self.chk_recovery = tk.Checkbutton(
+            settings_box,
+            text="🔄  Auto-recover error serials at end of run",
+            variable=self.var_auto_recovery,
+            bg=DARK_BG_SURFACE_ALT,
+            fg="#7EE787",
+            activebackground=DARK_BG_SURFACE_ALT,
+            activeforeground="#7EE787",
+            selectcolor=DARK_BG_MAIN,
+            font=("Segoe UI", 9, "bold"),
+            cursor="hand2",
+        )
+        self.chk_recovery.pack(anchor=tk.W, padx=8, pady=(4, 2))
+
+        lbl_recovery_desc = tk.Label(
+            settings_box,
+            text="Automatically retries any serials that encountered errors/captcha failures after a gentle server cooldown.",
+            font=("Segoe UI", 8),
+            bg=DARK_BG_SURFACE_ALT,
+            fg=DARK_TEXT_MUTED,
+            wraplength=310,
+            justify=tk.LEFT,
+        )
+        lbl_recovery_desc.pack(anchor=tk.W, padx=8, pady=(0, 6))
+
         # Delay spinbox
         delay_row = tk.Frame(settings_box, bg=DARK_BG_SURFACE_ALT)
         delay_row.pack(fill=tk.X, padx=8, pady=4)
@@ -792,6 +819,20 @@ class OppoCheckerGUI:
             command=self.sync_stats_from_file,
         )
         btn_refresh_counts.pack(side=tk.LEFT, expand=True, fill=tk.X, padx=2)
+
+        btn_retry_failed = tk.Button(
+            tools_row,
+            text="🩹 Retry Failed",
+            font=("Segoe UI", 8, "bold"),
+            bg="#2D1D10",
+            fg="#F2CC60",
+            activebackground="#4A3015",
+            activeforeground="#FFFFFF",
+            relief=tk.FLAT,
+            cursor="hand2",
+            command=self.retry_failed_serials,
+        )
+        btn_retry_failed.pack(side=tk.LEFT, expand=True, fill=tk.X, padx=2)
 
         # Automatically try to load default serials.txt
         self.load_serials_from_default()
@@ -1374,6 +1415,7 @@ class OppoCheckerGUI:
             "delay": self.var_delay.get(),
             "offset": self.var_offset.get(),
             "threads": max(1, min(8, self.var_threads.get())),
+            "auto_recovery": self.var_auto_recovery.get(),
             "output_path": Path(self.var_output_path.get()),
         }
 
@@ -1389,6 +1431,73 @@ class OppoCheckerGUI:
         self.lbl_timer_info.config(text=f"⏱ Stopping... ({self.stat_timer.get()})", fg="#F2CC60")
         self.stop_requested.set()
         self.btn_stop.config(state=tk.DISABLED)
+
+    def retry_failed_serials(self) -> None:
+        """One-click recovery action: Collect all failed/error serials and run a dedicated recovery pass."""
+        if self.is_running:
+            messagebox.showinfo("Already Running", "A verification run is currently in progress. Please wait for it to complete.")
+            return
+
+        failed_list: list[str] = []
+        if self.sheet_records:
+            for sn, r in self.sheet_records.items():
+                if str(r.get("status") or "").strip() != "Found":
+                    failed_list.append(sn)
+        else:
+            p = Path(self.var_output_path.get()).resolve()
+            if p.exists() and HAS_OPENPYXL:
+                try:
+                    wb = openpyxl.load_workbook(p, data_only=True)
+                    ws = wb.active
+                    headers = [cell.value for cell in ws[1]] if ws.max_row >= 1 else []
+                    stat_col = headers.index("Check Status") if "Check Status" in headers else -1
+                    sn_col = headers.index("Serial / IMEI") if "Serial / IMEI" in headers else 0
+                    for row in ws.iter_rows(min_row=2, values_only=True):
+                        if row and len(row) > sn_col:
+                            sn = str(row[sn_col]).strip()
+                            stat = str(row[stat_col]).strip() if stat_col != -1 and len(row) > stat_col else ""
+                            if sn and stat != "Found":
+                                failed_list.append(sn)
+                except Exception:
+                    pass
+
+        if not failed_list:
+            messagebox.showinfo("No Failed Serials", "Great news! No failed or error serials found in current results.")
+            return
+
+        if not messagebox.askyesno("Retry Failed Devices", f"Found {len(failed_list)} failed or error serial(s).\n\nStart an automatic recovery pass for these devices?"):
+            return
+
+        self.log(f"Starting dedicated recovery pass for {len(failed_list)} failed device(s)...", "info")
+        self.stop_requested.clear()
+        self.is_running = True
+        self.timer_start_time = time.time()
+        self.timer_elapsed_seconds = 0.0
+        self.timer_running = True
+        self._last_timer_sec = -1
+        self._current_processed = 0
+        self._current_total = len(failed_list)
+        self.stat_timer.set("00:00:00")
+        self.lbl_timer_info.config(text="⏱ Elapsed: 00:00:00", fg=DARK_ACCENT_BLUE)
+        self.btn_start.config(state=tk.DISABLED, bg="#484F58")
+        self.btn_stop.config(state=tk.NORMAL)
+        self.progress_bar.config(value=0)
+
+        # Gentle recovery: max 2 threads and 2.5s delay to avoid triggering rate-limiting
+        params = {
+            "serials": failed_list,
+            "headful": self.var_headful.get(),
+            "skip_verified": False,
+            "fresh": False,
+            "delay": max(2.0, self.var_delay.get()),
+            "offset": self.var_offset.get(),
+            "threads": min(2, len(failed_list)),
+            "auto_recovery": False,
+            "output_path": Path(self.var_output_path.get()),
+        }
+
+        self.worker_thread = threading.Thread(target=self._worker_run, args=(params,), daemon=True)
+        self.worker_thread.start()
 
     def _update_timer_display(self, now: float | None = None) -> None:
         """Update live elapsed timer, estimated time remaining (ETA), and processing speed."""
@@ -1597,9 +1706,139 @@ class OppoCheckerGUI:
             if w_id < num_workers:
                 time.sleep(1.0)  # 1s stagger between thread browser launches
 
-        # Wait for all workers to finish
+        # Wait for all workers to finish primary run
         for t in workers:
             t.join()
+
+        # Automatic Recovery Phase for failed/error serials
+        auto_recovery: bool = params.get("auto_recovery", True)
+        failed_serials = [
+            sn for sn in serials
+            if sn not in results_dict or str(results_dict[sn].get("status") or "").strip() != "Found"
+        ]
+
+        rec_recovered = 0
+        if auto_recovery and failed_serials and not self.stop_requested.is_set():
+            rec_total = len(failed_serials)
+            self.msg_queue.put(("LOG", ("warning", f"🔄 [Auto-Recovery] {rec_total} serial(s) encountered errors/failures. Pausing 4s for server cooldown before retry...")))
+
+            # Gentle cooldown pause allowing anti-bot & rate-limits to clear
+            for _ in range(8):
+                if self.stop_requested.is_set():
+                    break
+                time.sleep(0.5)
+
+            if not self.stop_requested.is_set():
+                rec_workers_count = min(2, rec_total)
+                self.msg_queue.put(("LOG", ("info", f"🔄 [Auto-Recovery] Starting recovery pass for {rec_total} failed serial(s) using {rec_workers_count} worker(s)...")))
+
+                rec_queue: queue.Queue[tuple[int, str]] = queue.Queue()
+                for idx, sn in enumerate(failed_serials, start=1):
+                    rec_queue.put((idx, sn))
+
+                rec_recovered_lock = threading.Lock()
+                rec_recovered_count = [0]
+
+                def _rec_worker(r_id: int) -> None:
+                    try:
+                        with sync_playwright() as p:
+                            launch_args = ["--start-maximized"] if headful else []
+                            browser = None
+                            try:
+                                browser = p.chromium.launch(headless=not headful, args=launch_args)
+                            except Exception:
+                                try:
+                                    browser = p.chromium.launch(channel="msedge", headless=not headful, args=launch_args)
+                                except Exception:
+                                    try:
+                                        browser = p.chromium.launch(channel="chrome", headless=not headful, args=launch_args)
+                                    except Exception as e_br:
+                                        self.msg_queue.put(("LOG", ("error", f"[Recovery #{r_id}] Browser launch error: {e_br}")))
+                                        return
+                            context = browser.new_context(
+                                user_agent="Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/122.0.0.0 Safari/537.36",
+                                viewport={"width": 1280, "height": 820},
+                            )
+                            page = context.new_page()
+
+                            while not self.stop_requested.is_set():
+                                try:
+                                    r_idx, sn = rec_queue.get_nowait()
+                                except queue.Empty:
+                                    break
+
+                                r_tag = f"[Recovery #{r_id}]"
+
+                                def on_status_rec(msg: str) -> None:
+                                    self.msg_queue.put(("PROGRESS_STATUS", f"{r_tag} [{r_idx}/{rec_total}] {sn}: {msg}"))
+
+                                self.msg_queue.put(("PROGRESS_STATUS", f"{r_tag} [{r_idx}/{rec_total}] Retrying {sn}..."))
+
+                                try:
+                                    res_new = check_oppo_serial(page, sn, on_status=on_status_rec, fine_tune_offset=offset)
+                                except Exception as exc:
+                                    res_new = {
+                                        "serial": sn,
+                                        "is_active": "Unknown",
+                                        "activation_date": "",
+                                        "activation_comment": "",
+                                        "model_name": "",
+                                        "specs": "",
+                                        "color": "",
+                                        "certified_model": "",
+                                        "region": "",
+                                        "warranty_end": "",
+                                        "status": "Error",
+                                        "raw_msg": str(exc),
+                                    }
+
+                                stat_new = str(res_new.get("status") or "").strip()
+                                if stat_new == "Found":
+                                    with rec_recovered_lock:
+                                        rec_recovered_count[0] += 1
+                                    self.msg_queue.put(("LOG", ("success", f"{r_tag} [{r_idx}/{rec_total}] ✅ RECOVERED {sn} -> Active: {res_new.get('is_active')} | Model: {res_new.get('model_name') or 'N/A'}")))
+                                else:
+                                    self.msg_queue.put(("LOG", ("warning", f"{r_tag} [{r_idx}/{rec_total}] ⚠️ Still {stat_new}: {sn}")))
+
+                                with save_lock:
+                                    results_dict[sn] = res_new
+                                    ordered_results = sorted(
+                                        results_dict.values(),
+                                        key=lambda r: order_map.get(str(r.get("serial", "")).strip(), 999999),
+                                    )
+                                    summary = self._safe_save_excel(ordered_results, output_path, fresh=fresh_mode)
+
+                                self.msg_queue.put(("ROW_RESULT", (res_new, summary, completed_count[0], total)))
+                                rec_queue.task_done()
+
+                                if not self.stop_requested.is_set():
+                                    time.sleep(max(2.0, delay))
+
+                            try:
+                                browser.close()
+                            except Exception:
+                                pass
+                    except Exception as e_rec:
+                        self.msg_queue.put(("LOG", ("error", f"[Recovery #{r_id}] Thread error: {e_rec}")))
+
+                rec_threads = []
+                for r_id in range(1, rec_workers_count + 1):
+                    if self.stop_requested.is_set():
+                        break
+                    t = threading.Thread(target=_rec_worker, args=(r_id,), daemon=True)
+                    rec_threads.append(t)
+                    t.start()
+                    if r_id < rec_workers_count:
+                        time.sleep(1.0)
+
+                for t in rec_threads:
+                    t.join()
+
+                rec_recovered = rec_recovered_count[0]
+                if rec_recovered > 0:
+                    self.msg_queue.put(("LOG", ("success", f"🎉 [Auto-Recovery] Finished: Successfully recovered {rec_recovered} of {rec_total} failed device(s)!")))
+                else:
+                    self.msg_queue.put(("LOG", ("info", f"ℹ️ [Auto-Recovery] Finished: Could not resolve remaining {rec_total} failed device(s).")))
 
         # Final save
         if results_dict:
@@ -1610,7 +1849,7 @@ class OppoCheckerGUI:
                 )
                 self._safe_save_excel(ordered_results, output_path, fresh=fresh_mode)
 
-        self.msg_queue.put(("FINISHED", {"total": total, "processed": completed_count[0]}))
+        self.msg_queue.put(("FINISHED", {"total": total, "processed": completed_count[0], "recovered": rec_recovered}))
 
     def _safe_save_excel(self, results: list[dict[str, Any]], output_path: Path, fresh: bool = False) -> dict[str, Any]:
         """Save results to Excel/CSV with retry on Windows file lock, returning summary stats."""
@@ -1700,17 +1939,20 @@ class OppoCheckerGUI:
 
                 proc_count = payload.get('processed', 0)
                 tot_count = payload.get('total', 0)
+                recovered_count = payload.get('recovered', 0)
                 avg_info = f" (~{self.timer_elapsed_seconds / max(1, proc_count):.1f}s/dev)" if proc_count > 0 else ""
+                rec_info = f" | 🩹 Recovered: {recovered_count}" if recovered_count > 0 else ""
 
-                self.lbl_progress_status.config(text=f"Verification completed in {time_str}! Click 'Open Excel' or 'Open CSV' to view report.")
+                self.lbl_progress_status.config(text=f"Verification completed in {time_str}! Click 'Open Excel' or 'Open CSV' to view report.{rec_info}")
                 self.progress_bar.config(value=100)
-                self.log(f"Batch finished in {time_str}{avg_info}. Excel and CSV files updated successfully.", "success")
+                self.log(f"Batch finished in {time_str}{avg_info}{rec_info}. Excel and CSV files updated successfully.", "success")
                 try:
                     if self.root.winfo_exists():
+                        rec_msg = f"\n🩹 Recovered in Retry: {recovered_count} devices" if recovered_count > 0 else ""
                         messagebox.showinfo(
                             "Done",
                             f"Verification completed!\n\n"
-                            f"Processed: {proc_count} of {tot_count} devices\n"
+                            f"Processed: {proc_count} of {tot_count} devices{rec_msg}\n"
                             f"Total Time: {time_str}{avg_info}"
                         )
                 except Exception:

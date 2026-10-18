@@ -762,6 +762,7 @@ def main() -> int:
     parser.add_argument("--limit", type=int, default=None, help="Limit number of serials to process (optional)")
     parser.add_argument("--adjust", type=float, default=0.0, help="Nudge drag distance in pixels (+ moves right, - moves left, default: 0.0)")
     parser.add_argument("--threads", type=int, default=1, help="Number of parallel worker browser threads (default: 1)")
+    parser.add_argument("--auto-recover", action=argparse.BooleanOptionalAction, default=True, help="Automatically retry failed/error serials at the end of the batch (default: True)")
     args = parser.parse_args()
 
     identifiers = read_identifiers(args.input)
@@ -856,6 +857,45 @@ def main() -> int:
         for t in threads:
             t.join()
 
+        # Automatic Recovery Phase for failed/error serials
+        if args.auto_recover:
+            failed_serials = [
+                sn for sn in identifiers
+                if sn not in results_dict or str(results_dict[sn].get("status") or "").strip() != "Found"
+            ]
+            if failed_serials:
+                print(f"\n🔄 [Auto-Recovery] Found {len(failed_serials)} failed serial(s). Pausing 4s for server cooldown...")
+                time.sleep(4.0)
+                print(f"🔄 [Auto-Recovery] Retrying {len(failed_serials)} failed serial(s)...")
+                with sync_playwright() as p:
+                    try:
+                        rec_browser = p.chromium.launch(headless=not args.headful)
+                    except Exception:
+                        try:
+                            rec_browser = p.chromium.launch(channel="msedge", headless=not args.headful)
+                        except Exception:
+                            rec_browser = p.chromium.launch(channel="chrome", headless=not args.headful)
+                    rec_ctx = rec_browser.new_context(
+                        user_agent="Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/122.0.0.0 Safari/537.36",
+                        viewport={"width": 1280, "height": 800},
+                    )
+                    rec_page = rec_ctx.new_page()
+                    rec_ok = 0
+                    for r_i, r_sn in enumerate(failed_serials, start=1):
+                        print(f"  [Auto-Recovery {r_i}/{len(failed_serials)}] Retrying {r_sn}...")
+                        r_res = check_oppo_serial(rec_page, r_sn, fine_tune_offset=args.adjust)
+                        if str(r_res.get("status") or "").strip() == "Found":
+                            rec_ok += 1
+                            print(f"  [Auto-Recovery] ✅ RECOVERED {r_sn} -> Active: {r_res.get('is_active')} | Model: {r_res.get('model_name')}")
+                        else:
+                            print(f"  [Auto-Recovery] ⚠️ Still unresolved: {r_sn} ({r_res.get('status')})")
+                        results_dict[r_sn] = r_res
+                        ordered = sorted(results_dict.values(), key=lambda r: order_map.get(str(r.get("serial", "")).strip(), 999999))
+                        save_to_excel(ordered, args.output, quiet=True)
+                        time.sleep(max(2.0, args.delay))
+                    rec_browser.close()
+                print(f"🎉 [Auto-Recovery] Finished: {rec_ok}/{len(failed_serials)} serial(s) recovered successfully.\n")
+
         ordered_final = sorted(results_dict.values(), key=lambda r: order_map.get(str(r.get("serial", "")).strip(), 999999))
         save_to_excel(ordered_final, args.output, quiet=False)
         print("\n" + "=" * 60)
@@ -917,6 +957,42 @@ def main() -> int:
                     time.sleep(args.delay)
 
         browser.close()
+
+    # Automatic Recovery Phase for failed/error serials
+    if args.auto_recover:
+        failed_indices = [i for i, r in enumerate(results) if str(r.get("status") or "").strip() != "Found"]
+        if failed_indices:
+            print(f"\n🔄 [Auto-Recovery] Found {len(failed_indices)} failed serial(s). Pausing 4s for server cooldown...")
+            time.sleep(4.0)
+            print(f"🔄 [Auto-Recovery] Retrying {len(failed_indices)} failed serial(s)...")
+            with sync_playwright() as p:
+                try:
+                    rec_browser = p.chromium.launch(headless=not args.headful)
+                except Exception:
+                    try:
+                        rec_browser = p.chromium.launch(channel="msedge", headless=not args.headful)
+                    except Exception:
+                        rec_browser = p.chromium.launch(channel="chrome", headless=not args.headful)
+                rec_ctx = rec_browser.new_context(
+                    user_agent="Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/122.0.0.0 Safari/537.36",
+                    viewport={"width": 1280, "height": 800},
+                )
+                rec_page = rec_ctx.new_page()
+                rec_ok = 0
+                for r_idx, idx in enumerate(failed_indices, start=1):
+                    r_sn = results[idx]["serial"]
+                    print(f"  [Auto-Recovery {r_idx}/{len(failed_indices)}] Retrying {r_sn}...")
+                    r_res = check_oppo_serial(rec_page, r_sn, fine_tune_offset=args.adjust)
+                    if str(r_res.get("status") or "").strip() == "Found":
+                        rec_ok += 1
+                        print(f"  [Auto-Recovery] ✅ RECOVERED {r_sn} -> Active: {r_res.get('is_active')} | Model: {r_res.get('model_name')}")
+                    else:
+                        print(f"  [Auto-Recovery] ⚠️ Still unresolved: {r_sn} ({r_res.get('status')})")
+                    results[idx] = r_res
+                    save_to_excel(results, args.output, quiet=True)
+                    time.sleep(max(2.0, args.delay))
+                rec_browser.close()
+            print(f"🎉 [Auto-Recovery] Finished: {rec_ok}/{len(failed_indices)} serial(s) recovered successfully.\n")
 
     save_to_excel(results, args.output, quiet=False)
     print("\n" + "=" * 60)
