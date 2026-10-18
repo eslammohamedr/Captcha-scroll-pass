@@ -144,6 +144,23 @@
         </div>
       </div>
 
+      <!-- Current Database Status Banner -->
+      <div class="bg-dark-surface border border-dark-border rounded-xl p-3 flex items-center justify-between text-xs">
+        <div class="flex items-center space-x-2.5">
+          <div class="w-8 h-8 rounded-lg bg-blue-500/10 text-blue-400 flex items-center justify-center font-bold text-sm">🗄️</div>
+          <div>
+            <div class="font-bold text-white flex items-center space-x-1.5">
+              <span>Database: <span id="dashDbEngine">SQLite 3 (WAL)</span></span>
+              <span id="dashDbSizeBadge" class="px-1.5 py-0.5 rounded text-[10px] bg-dark-card text-dark-muted font-mono">140 KB</span>
+            </div>
+            <div class="text-[11px] text-dark-muted" id="dashDbDetails">696 total devices loaded in Default group</div>
+          </div>
+        </div>
+        <a href="/api/database/download" download class="bg-dark-card hover:bg-dark-border text-white px-3 py-1.5 rounded-lg border border-dark-border text-[11px] font-semibold active:scale-95 transition flex items-center space-x-1">
+          <span>📥 Backup .db</span>
+        </a>
+      </div>
+
       <!-- Quick Action Buttons Row -->
       <div class="bg-dark-surface border border-dark-border rounded-xl p-3 flex flex-wrap gap-2">
         <button onclick="triggerRun('pending_only')" class="flex-1 min-w-[140px] bg-emerald-600 hover:bg-emerald-500 text-white text-xs font-bold py-2.5 px-3 rounded-lg flex items-center justify-center space-x-1.5 transition active:scale-95 shadow">
@@ -373,6 +390,44 @@
               <option value="3.0">3.0s (Anti-bot safe)</option>
             </select>
           </div>
+        </div>
+      </div>
+
+      <!-- Database & Storage Management Section -->
+      <div class="bg-dark-surface border border-dark-border rounded-xl p-4 space-y-3">
+        <div class="flex items-center justify-between">
+          <h2 class="text-sm font-bold text-white flex items-center space-x-1.5">
+            <span>🗄️ Database & Storage Overview</span>
+          </h2>
+          <span id="setDbSizeBadge" class="text-xs bg-dark-card text-brand-500 font-mono px-2 py-0.5 rounded border border-dark-border">140 KB</span>
+        </div>
+
+        <div class="grid grid-cols-2 gap-2 text-xs">
+          <div class="bg-dark-main p-2.5 rounded-lg border border-dark-border/50">
+            <span class="text-dark-muted block text-[10px]">Database Engine:</span>
+            <span class="text-white font-bold" id="setDbEngine">SQLite 3 (WAL)</span>
+          </div>
+          <div class="bg-dark-main p-2.5 rounded-lg border border-dark-border/50">
+            <span class="text-dark-muted block text-[10px]">Total Stored:</span>
+            <span class="text-white font-bold" id="setDbTotal">696 devices</span>
+          </div>
+          <div class="bg-dark-main p-2.5 rounded-lg border border-dark-border/50">
+            <span class="text-dark-muted block text-[10px]">Active / Inactive:</span>
+            <span class="text-emerald-400 font-bold" id="setDbActive">256</span> / <span class="text-amber-400 font-bold" id="setDbInactive">354</span>
+          </div>
+          <div class="bg-dark-main p-2.5 rounded-lg border border-dark-border/50">
+            <span class="text-dark-muted block text-[10px]">File Path:</span>
+            <span class="text-white font-mono truncate block text-[11px]" title="data/oppo_monitor.db">data/oppo_monitor.db</span>
+          </div>
+        </div>
+
+        <div class="flex flex-wrap gap-2 pt-1">
+          <a href="/api/database/download" download class="flex-1 min-w-[140px] bg-dark-card hover:bg-dark-border text-white text-xs font-semibold py-2 px-3 rounded-lg border border-dark-border flex items-center justify-center space-x-1.5 active:scale-95 transition">
+            <span>📥 Download Backup (.db)</span>
+          </a>
+          <button onclick="reloadDefaultSheet()" class="flex-1 min-w-[140px] bg-blue-950/40 hover:bg-blue-900/40 text-blue-400 border border-blue-500/30 text-xs font-semibold py-2 px-3 rounded-lg flex items-center justify-center space-x-1.5 active:scale-95 transition">
+            <span>🔄 Reload 696 Default Sheet</span>
+          </button>
         </div>
       </div>
 

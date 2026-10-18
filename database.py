@@ -6,6 +6,7 @@ group segmentation, run history, and dynamic user settings.
 
 from __future__ import annotations
 
+import csv
 import datetime
 import os
 import sqlite3
@@ -13,6 +14,8 @@ import threading
 from contextlib import contextmanager
 from pathlib import Path
 from typing import Any, Generator
+
+import openpyxl
 
 DB_DIR = Path(__file__).resolve().parent / "data"
 DB_DIR.mkdir(parents=True, exist_ok=True)
@@ -525,6 +528,139 @@ def get_recent_runs(limit: int = 15) -> list[dict[str, Any]]:
     with get_db_cursor() as cur:
         cur.execute("SELECT * FROM run_history ORDER BY id DESC LIMIT ?;", (limit,))
         return [dict(r) for r in cur.fetchall()]
+
+
+def import_sheet_to_database(
+    file_path: Path | str = Path("oppo_results_20261017_1718.csv"),
+    group_name: str = "Default",
+    clear_test: bool = True,
+) -> int:
+    """Import devices from an existing Excel or CSV results sheet into the database."""
+    p = Path(file_path).resolve()
+    if not p.exists():
+        # Fallback to current folder
+        p = Path(__file__).resolve().parent / Path(file_path).name
+        if not p.exists():
+            return 0
+
+    rows: list[dict[str, Any]] = []
+    if p.suffix.lower() == ".csv":
+        with open(p, "r", encoding="utf-8-sig") as f:
+            reader = csv.DictReader(f)
+            rows = list(reader)
+    elif p.suffix.lower() in [".xlsx", ".xls"]:
+        wb = openpyxl.load_workbook(p, data_only=True)
+        ws = wb.active
+        headers = [str(c.value or "").strip() for c in ws[1]] if ws.max_row >= 1 else []
+        for r in ws.iter_rows(min_row=2, values_only=True):
+            if r and any(r):
+                row_dict = {headers[i]: r[i] for i in range(min(len(headers), len(r)))}
+                rows.append(row_dict)
+
+    if not rows:
+        return 0
+
+    now = datetime.datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+    imported_count = 0
+
+    with get_db_cursor() as cur:
+        if clear_test:
+            # Delete any test serials from prior tests
+            cur.execute("DELETE FROM devices WHERE serial LIKE 'TEST_OPPO_%' OR serial LIKE 'API_TEST_%';")
+
+        # Ensure group exists
+        cur.execute("INSERT OR IGNORE INTO groups (name, created_at, description) VALUES (?, ?, ?);",
+                    (group_name, now, "Default imported sheet group"))
+
+        for r in rows:
+            # Flexible header mapping
+            sn = str(r.get("Serial / IMEI") or r.get("serial") or r.get("IMEI") or r.get("Serial") or "").strip().upper()
+            if not sn or sn.lower() in ["serial", "imei", "serial / imei"]:
+                continue
+
+            is_active = str(r.get("Active?") or r.get("is_active") or "Unknown").strip()
+            act_date = str(r.get("Activation Date") or r.get("activation_date") or "").strip()
+            act_comment = str(r.get("Activation Comment") or r.get("activation_comment") or "").strip()
+            model_name = str(r.get("Model Name") or r.get("model_name") or "").strip()
+            specs = str(r.get("RAM/ROM") or r.get("specs") or r.get("RAM / Storage") or "").strip()
+            color = str(r.get("Color") or r.get("color") or "").strip()
+            certified = str(r.get("Certified Model") or r.get("certified_model") or "").strip()
+            region = str(r.get("Region") or r.get("region") or "").strip()
+            warranty = str(r.get("Warranty End") or r.get("warranty_end") or "").strip()
+            status = str(r.get("Check Status") or r.get("status") or "Found").strip()
+            last_checked = str(r.get("Last Checked") or r.get("last_checked_at") or now).strip()
+
+            activated_at = ""
+            if is_active == "Yes":
+                activated_at = act_date if act_date and act_date != "Not Activated" else last_checked
+
+            cur.execute("""
+                INSERT INTO devices (
+                    serial, group_name, is_active, activation_date, activation_comment,
+                    model_name, specs, color, certified_model, region, warranty_end,
+                    status, first_added_at, last_checked_at, activated_at
+                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                ON CONFLICT(serial) DO UPDATE SET
+                    group_name = excluded.group_name,
+                    is_active = excluded.is_active,
+                    activation_date = excluded.activation_date,
+                    activation_comment = excluded.activation_comment,
+                    model_name = excluded.model_name,
+                    specs = excluded.specs,
+                    color = excluded.color,
+                    certified_model = excluded.certified_model,
+                    region = excluded.region,
+                    warranty_end = excluded.warranty_end,
+                    status = excluded.status,
+                    last_checked_at = excluded.last_checked_at,
+                    activated_at = excluded.activated_at;
+            """, (
+                sn, group_name, is_active, act_date, act_comment,
+                model_name, specs, color, certified, region, warranty,
+                status, now, last_checked, activated_at,
+            ))
+            imported_count += 1
+
+    return imported_count
+
+
+def get_database_info() -> dict[str, Any]:
+    """Retrieve detailed database engine, storage statistics, and device metrics."""
+    stat_size = DB_PATH.stat().st_size if DB_PATH.exists() else 0
+    if stat_size >= 1024 * 1024:
+        size_fmt = f"{stat_size / (1024 * 1024):.2f} MB"
+    elif stat_size >= 1024:
+        size_fmt = f"{stat_size / 1024:.1f} KB"
+    else:
+        size_fmt = f"{stat_size} Bytes"
+
+    mtime_str = ""
+    if DB_PATH.exists():
+        mtime = datetime.datetime.fromtimestamp(DB_PATH.stat().st_mtime)
+        mtime_str = mtime.strftime("%Y-%m-%d %H:%M:%S")
+
+    stats = get_dashboard_stats()
+
+    with get_db_cursor() as cur:
+        cur.execute("SELECT COUNT(*) AS cnt FROM run_history;")
+        runs_cnt = cur.fetchone()["cnt"]
+
+    return {
+        "engine": "SQLite 3 (WAL Mode)",
+        "file_name": DB_PATH.name,
+        "file_path": str(DB_PATH),
+        "file_size": size_fmt,
+        "file_size_bytes": stat_size,
+        "last_modified": mtime_str,
+        "total_devices": stats["total"],
+        "active_devices": stats["active"],
+        "inactive_devices": stats["inactive"],
+        "pending_devices": stats["pending"],
+        "error_devices": stats["errors"],
+        "activated_today": stats["activated_today"],
+        "groups_count": stats["groups_count"],
+        "runs_count": runs_cnt,
+    }
 
 
 # Initialize on import

@@ -319,6 +319,37 @@ def download_report(filename: str) -> FileResponse:
     )
 
 
+@app.get("/api/database/info")
+def get_database_info() -> dict[str, Any]:
+    """Retrieve detailed database engine, storage statistics, and device metrics."""
+    return database.get_database_info()
+
+
+@app.get("/api/database/download")
+def download_database() -> FileResponse:
+    """Download the raw SQLite database file as a full backup."""
+    db_path = database.get_db_path()
+    if not db_path.exists():
+        raise HTTPException(status_code=404, detail="Database file not found.")
+    return FileResponse(
+        path=str(db_path),
+        filename="oppo_monitor_backup.db",
+        media_type="application/x-sqlite3",
+    )
+
+
+@app.post("/api/database/import-default")
+def import_default_sheet() -> dict[str, Any]:
+    """Import or reset database from the default 696-serial sheet."""
+    imported = database.import_sheet_to_database("oppo_results_20261017_1718.csv", group_name="Default", clear_test=True)
+    return {
+        "success": True,
+        "imported": imported,
+        "message": f"Successfully loaded {imported} serials from default sheet into database.",
+        "info": database.get_database_info(),
+    }
+
+
 # --- Static Files & Root View ---
 
 @app.get("/", response_class=HTMLResponse)

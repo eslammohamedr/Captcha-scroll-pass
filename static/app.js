@@ -153,7 +153,57 @@ async function loadDashboardStats() {
     if (data.worker && data.worker.logs) {
       renderActivityLogs(data.worker.logs);
     }
+    loadDatabaseInfo();
   } catch (e) {}
+}
+
+// --- Database Storage Info ---
+async function loadDatabaseInfo() {
+  try {
+    const res = await fetch('/api/database/info');
+    if (!res.ok) return;
+    const db = await res.json();
+
+    // Dashboard Banner
+    const dashEngine = document.getElementById('dashDbEngine');
+    const dashSize = document.getElementById('dashDbSizeBadge');
+    const dashDetails = document.getElementById('dashDbDetails');
+    if (dashEngine) dashEngine.innerText = db.engine;
+    if (dashSize) dashSize.innerText = db.file_size;
+    if (dashDetails) dashDetails.innerText = `${db.total_devices} devices stored (${db.active_devices} Active, ${db.inactive_devices} Inactive, ${db.pending_devices} Pending)`;
+
+    // Settings Card
+    const setSize = document.getElementById('setDbSizeBadge');
+    const setEngine = document.getElementById('setDbEngine');
+    const setTotal = document.getElementById('setDbTotal');
+    const setActive = document.getElementById('setDbActive');
+    const setInactive = document.getElementById('setDbInactive');
+    if (setSize) setSize.innerText = db.file_size;
+    if (setEngine) setEngine.innerText = db.engine;
+    if (setTotal) setTotal.innerText = `${db.total_devices} devices`;
+    if (setActive) setActive.innerText = db.active_devices;
+    if (setInactive) setInactive.innerText = db.inactive_devices;
+  } catch (e) {}
+}
+
+async function reloadDefaultSheet() {
+  if (!confirm('Reload the default 696-serial sheet into the database?')) return;
+  showToast('Reloading 696 serials from default sheet...', 'info');
+  try {
+    const res = await fetch('/api/database/import-default', { method: 'POST' });
+    const data = await res.json();
+    if (res.ok) {
+      showToast(data.message, 'success');
+      loadDashboardStats();
+      loadDatabaseInfo();
+      loadDevices();
+      loadGroups();
+    } else {
+      showToast(data.detail || 'Failed to reload sheet', 'error');
+    }
+  } catch (e) {
+    showToast('Failed to reload sheet', 'error');
+  }
 }
 
 // --- Groups Management ---
