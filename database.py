@@ -378,11 +378,11 @@ def get_devices(
             query += " AND is_active = 'No'"
             count_query += " AND is_active = 'No'"
         elif stat == "Pending":
-            query += " AND (is_active = 'Unknown' OR status = 'Pending')"
-            count_query += " AND (is_active = 'Unknown' OR status = 'Pending')"
+            query += " AND (is_active = 'Pending' OR status = 'Pending')"
+            count_query += " AND (is_active = 'Pending' OR status = 'Pending')"
         elif stat == "Error":
-            query += " AND (status IN ('Error', 'Captcha Failed', 'No Response'))"
-            count_query += " AND (status IN ('Error', 'Captcha Failed', 'No Response'))"
+            query += " AND (is_active IN ('Error', 'Unknown') OR status IN ('Error', 'Captcha Failed', 'No Response'))"
+            count_query += " AND (is_active IN ('Error', 'Unknown') OR status IN ('Error', 'Captcha Failed', 'No Response'))"
 
     if newly_activated_only:
         # Detected active today
@@ -473,8 +473,8 @@ def get_dashboard_stats() -> dict[str, Any]:
                 COUNT(*) AS total,
                 SUM(CASE WHEN is_active = 'Yes' THEN 1 ELSE 0 END) AS active_count,
                 SUM(CASE WHEN is_active = 'No' THEN 1 ELSE 0 END) AS inactive_count,
-                SUM(CASE WHEN is_active = 'Unknown' OR status = 'Pending' THEN 1 ELSE 0 END) AS pending_count,
-                SUM(CASE WHEN status IN ('Error', 'Captcha Failed', 'No Response') THEN 1 ELSE 0 END) AS error_count,
+                SUM(CASE WHEN is_active = 'Pending' OR status = 'Pending' THEN 1 ELSE 0 END) AS pending_count,
+                SUM(CASE WHEN is_active IN ('Error', 'Unknown') OR status IN ('Error', 'Captcha Failed', 'No Response') THEN 1 ELSE 0 END) AS error_count,
                 SUM(CASE WHEN is_active = 'Yes' AND activated_at >= ? AND activated_at <= ? THEN 1 ELSE 0 END) AS activated_today_count
             FROM devices;
         """, (today_start, today_end))

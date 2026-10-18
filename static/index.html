@@ -102,9 +102,9 @@
     <!-- 1. DASHBOARD VIEW -->
     <div id="viewDashboard" class="space-y-4">
       <!-- High-Level Metric Cards Grid -->
-      <div class="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-5 gap-2.5">
+      <div class="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-6 gap-2.5">
         <!-- Total Tracked -->
-        <div class="bg-dark-surface border border-dark-border rounded-xl p-3 flex flex-col justify-between">
+        <div onclick="switchTab('Devices'); setFilterStatus('all');" class="bg-dark-surface border border-dark-border hover:border-blue-500/50 cursor-pointer rounded-xl p-3 flex flex-col justify-between transition active:scale-95">
           <div class="flex items-center justify-between">
             <span class="text-xs font-medium text-dark-muted">Total Devices</span>
             <span class="p-1 rounded-lg bg-blue-500/10 text-blue-400">📱</span>
@@ -114,7 +114,7 @@
         </div>
 
         <!-- Total Active Devices -->
-        <div class="bg-gradient-to-br from-emerald-950/60 to-dark-surface border border-emerald-500/40 rounded-xl p-3 flex flex-col justify-between shadow-sm">
+        <div onclick="switchTab('Devices'); setFilterStatus('Active');" class="bg-gradient-to-br from-emerald-950/60 to-dark-surface border border-emerald-500/40 hover:border-emerald-400 cursor-pointer rounded-xl p-3 flex flex-col justify-between shadow-sm transition active:scale-95">
           <div class="flex items-center justify-between">
             <span class="text-xs font-bold text-emerald-400">Total Active</span>
             <span class="p-1 rounded-lg bg-emerald-500/20 text-emerald-400 font-bold">✔</span>
@@ -124,7 +124,7 @@
         </div>
 
         <!-- Total Inactive Devices -->
-        <div class="bg-gradient-to-br from-amber-950/40 to-dark-surface border border-amber-500/30 rounded-xl p-3 flex flex-col justify-between shadow-sm">
+        <div onclick="switchTab('Devices'); setFilterStatus('Inactive');" class="bg-gradient-to-br from-amber-950/40 to-dark-surface border border-amber-500/30 hover:border-amber-400 cursor-pointer rounded-xl p-3 flex flex-col justify-between shadow-sm transition active:scale-95">
           <div class="flex items-center justify-between">
             <span class="text-xs font-bold text-amber-400">Total Inactive</span>
             <span class="p-1 rounded-lg bg-amber-500/10 text-amber-400 font-bold">⏳</span>
@@ -133,8 +133,18 @@
           <span class="text-[10px] text-amber-500/80 font-medium">Awaiting activation</span>
         </div>
 
+        <!-- Pending Activation / Sync -->
+        <div onclick="switchTab('Devices'); setFilterStatus('Pending');" class="bg-gradient-to-br from-purple-950/40 to-dark-surface border border-purple-500/30 hover:border-purple-400 cursor-pointer rounded-xl p-3 flex flex-col justify-between shadow-sm transition active:scale-95">
+          <div class="flex items-center justify-between">
+            <span class="text-xs font-bold text-purple-400">Pending Sync</span>
+            <span class="p-1 rounded-lg bg-purple-500/10 text-purple-400 font-bold">🔄</span>
+          </div>
+          <div class="text-2xl font-black text-purple-400 mt-1.5" id="metricPending">0</div>
+          <span class="text-[10px] text-purple-400/80 font-medium">In system transfer</span>
+        </div>
+
         <!-- Detected Active Today -->
-        <div class="bg-dark-surface border border-dark-border rounded-xl p-3 flex flex-col justify-between">
+        <div onclick="switchTab('Devices'); setFilterNewlyActivated();" class="bg-dark-surface border border-dark-border hover:border-emerald-500/50 cursor-pointer rounded-xl p-3 flex flex-col justify-between transition active:scale-95">
           <div class="flex items-center justify-between">
             <span class="text-xs font-medium text-emerald-400">Detected Today</span>
             <span class="p-1 rounded-lg bg-emerald-500/10 text-emerald-400">🔥</span>
@@ -144,7 +154,7 @@
         </div>
 
         <!-- Errors -->
-        <div class="col-span-2 md:col-span-1 bg-dark-surface border border-dark-border rounded-xl p-3 flex flex-col justify-between">
+        <div onclick="switchTab('Devices'); setFilterStatus('Error');" class="bg-dark-surface border border-dark-border hover:border-red-500/50 cursor-pointer rounded-xl p-3 flex flex-col justify-between transition active:scale-95">
           <div class="flex items-center justify-between">
             <span class="text-xs font-medium text-red-400">Errors</span>
             <span class="p-1 rounded-lg bg-red-500/10 text-red-400">⚠️</span>
@@ -237,8 +247,9 @@
         <!-- Status Filter Badges -->
         <div class="flex items-center space-x-1.5 text-xs overflow-x-auto no-scrollbar">
           <button onclick="setFilterStatus('all')" id="filterBtn_all" class="px-2.5 py-1 rounded-md font-semibold bg-brand-600 text-white text-[11px]">All</button>
-          <button onclick="setFilterStatus('Active')" id="filterBtn_Active" class="px-2.5 py-1 rounded-md font-semibold bg-dark-card text-dark-muted hover:text-white text-[11px]">Active (Yes)</button>
-          <button onclick="setFilterStatus('Inactive')" id="filterBtn_Inactive" class="px-2.5 py-1 rounded-md font-semibold bg-dark-card text-dark-muted hover:text-white text-[11px]">Inactive (Pending)</button>
+          <button onclick="setFilterStatus('Active')" id="filterBtn_Active" class="px-2.5 py-1 rounded-md font-semibold bg-dark-card text-dark-muted hover:text-white text-[11px]">Active</button>
+          <button onclick="setFilterStatus('Inactive')" id="filterBtn_Inactive" class="px-2.5 py-1 rounded-md font-semibold bg-dark-card text-dark-muted hover:text-white text-[11px]">Inactive</button>
+          <button onclick="setFilterStatus('Pending')" id="filterBtn_Pending" class="px-2.5 py-1 rounded-md font-semibold bg-dark-card text-purple-400 hover:text-purple-300 text-[11px]">Pending Sync</button>
           <button onclick="setFilterStatus('Error')" id="filterBtn_Error" class="px-2.5 py-1 rounded-md font-semibold bg-dark-card text-dark-muted hover:text-white text-[11px]">Errors</button>
           <button onclick="setFilterNewlyActivated()" id="filterBtn_Newly" class="px-2.5 py-1 rounded-md font-semibold bg-dark-card text-amber-400 hover:text-amber-300 text-[11px]">🔥 Detected Today</button>
         </div>

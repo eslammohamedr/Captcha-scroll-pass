@@ -204,8 +204,10 @@ async function loadDashboardStats() {
 
     const activeEl = document.getElementById('metricActive');
     const inactiveEl = document.getElementById('metricInactive');
+    const pendingEl = document.getElementById('metricPending');
     if (activeEl) activeEl.innerText = data.active || 0;
     if (inactiveEl) inactiveEl.innerText = data.inactive || 0;
+    if (pendingEl) pendingEl.innerText = data.pending || 0;
 
     document.getElementById('metricActivatedToday').innerText = data.activated_today || 0;
     document.getElementById('metricTotal').innerText = data.total || 0;
@@ -360,13 +362,21 @@ function setFilterNewlyActivated() {
 }
 
 function updateFilterButtons() {
-  ['all', 'Active', 'Inactive', 'Error'].forEach(s => {
+  ['all', 'Active', 'Inactive', 'Pending', 'Error'].forEach(s => {
     const btn = document.getElementById(`filterBtn_${s}`);
     if (btn) {
       if (state.statusFilter === s && !state.newlyActivatedFilter) {
-        btn.className = 'px-2.5 py-1 rounded-md font-semibold bg-brand-600 text-white text-[11px]';
+        if (s === 'Pending') {
+          btn.className = 'px-2.5 py-1 rounded-md font-semibold bg-purple-600 text-white text-[11px]';
+        } else {
+          btn.className = 'px-2.5 py-1 rounded-md font-semibold bg-brand-600 text-white text-[11px]';
+        }
       } else {
-        btn.className = 'px-2.5 py-1 rounded-md font-semibold bg-dark-card text-dark-muted hover:text-white text-[11px]';
+        if (s === 'Pending') {
+          btn.className = 'px-2.5 py-1 rounded-md font-semibold bg-dark-card text-purple-400 hover:text-purple-300 text-[11px]';
+        } else {
+          btn.className = 'px-2.5 py-1 rounded-md font-semibold bg-dark-card text-dark-muted hover:text-white text-[11px]';
+        }
       }
     }
   });
@@ -469,7 +479,9 @@ function getActiveBadgeHtml(isActive, status) {
     return `<span class="px-2 py-0.5 rounded-full text-[10px] font-bold bg-emerald-500/20 text-emerald-400 border border-emerald-500/30">✔ Active</span>`;
   } else if (isActive === 'No') {
     return `<span class="px-2 py-0.5 rounded-full text-[10px] font-bold bg-amber-500/20 text-amber-400 border border-amber-500/30">⏳ Inactive</span>`;
-  } else if (status === 'Error' || status === 'Captcha Failed') {
+  } else if (isActive === 'Unknown' || status === 'Pending') {
+    return `<span class="px-2 py-0.5 rounded-full text-[10px] font-bold bg-purple-500/20 text-purple-400 border border-purple-500/30">🔄 Pending Sync</span>`;
+  } else if (status === 'Error' || status === 'Captcha Failed' || status === 'No Response') {
     return `<span class="px-2 py-0.5 rounded-full text-[10px] font-bold bg-red-500/20 text-red-400 border border-red-500/30">⚠️ ${status}</span>`;
   }
   return `<span class="px-2 py-0.5 rounded-full text-[10px] font-medium bg-dark-card text-dark-muted">Unchecked</span>`;
