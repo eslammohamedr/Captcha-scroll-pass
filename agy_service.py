@@ -9,6 +9,7 @@ from __future__ import annotations
 
 import collections
 import datetime
+import json
 import logging
 import os
 import queue
@@ -39,6 +40,7 @@ class AgyRunner:
         self.subscribers: list[queue.Queue[dict[str, Any]]] = []
         self.exit_code: int | None = None
         self.last_run_summary: dict[str, Any] = {}
+        self._recent_broadcasts: collections.deque[str] = collections.deque(maxlen=200)
 
     def get_status(self) -> dict[str, Any]:
         """Return live status of the AGY process."""
@@ -75,6 +77,7 @@ class AgyRunner:
             self.started_at = datetime.datetime.now().strftime("%Y-%m-%d %H:%M:%S")
             self.exit_code = None
             self.output_buffer.clear()
+            self._recent_broadcasts.clear()
 
         self._broadcast_log("system", f"🚀 Starting AGY (YOLO Mode) in {WORKSPACE_DIR}")
         self._broadcast_log("system", f"Prompt: {prompt}")
@@ -116,6 +119,8 @@ class AgyRunner:
 
     def _broadcast_log(self, stream: str, text: str) -> None:
         """Append log line to circular buffer and broadcast to all live subscribers."""
+        if not text:
+            return
         now = datetime.datetime.now().strftime("%H:%M:%S")
         entry = {
             "time": now,
@@ -124,12 +129,116 @@ class AgyRunner:
             "index": len(self.output_buffer),
         }
         with self.lock:
+            dedup_key = f"{stream}:{text}"
+            if dedup_key in self._recent_broadcasts:
+                return
+            self._recent_broadcasts.append(dedup_key)
+
             self.output_buffer.append(entry)
             for q in list(self.subscribers):
                 try:
                     q.put_nowait(entry)
                 except queue.Full:
                     pass
+
+    def _tail_transcript_loop(self, prompt: str, start_time: float) -> None:
+        """Tail transcript.jsonl of the active AGY run to broadcast real-time step progress."""
+        transcript_file: Path | None = None
+        brain_dir = Path("/home/dell/.gemini/antigravity-cli/brain")
+
+        # Wait up to 15 seconds for transcript file to appear
+        search_start = time.time()
+        while time.time() - search_start < 15 and self.is_running:
+            if brain_dir.exists():
+                candidates = []
+                for p in brain_dir.glob("*/.system_generated/logs/transcript.jsonl"):
+                    try:
+                        mtime = p.stat().st_mtime
+                        if mtime >= start_time - 3.0:
+                            candidates.append((mtime, p))
+                    except OSError:
+                        pass
+                candidates.sort(key=lambda x: x[0], reverse=True)
+                for _, p in candidates:
+                    try:
+                        with open(p, "r", encoding="utf-8", errors="ignore") as f:
+                            first = f.readline()
+                            if prompt[:20].lower() in first.lower():
+                                transcript_file = p
+                                break
+                    except Exception:
+                        pass
+                if transcript_file:
+                    break
+            time.sleep(1)
+
+        if not transcript_file:
+            logger.info("No matching transcript.jsonl found for active AGY run.")
+            return
+
+        conv_id = transcript_file.parent.parent.parent.name
+        self._broadcast_log("system", f"🔍 Tracking agent session: {conv_id[:8]}...")
+
+        # Tail the file
+        last_heartbeat = time.time()
+        last_step_idx = -1
+        try:
+            with open(transcript_file, "r", encoding="utf-8", errors="ignore") as f:
+                while self.is_running or (self.process and self.process.poll() is None):
+                    line = f.readline()
+                    if line:
+                        line = line.strip()
+                        if not line:
+                            continue
+                        try:
+                            entry = json.loads(line)
+                            step_idx = entry.get("step_index", 0)
+                            entry_type = entry.get("type", "")
+
+                            if "tool_calls" in entry and entry["tool_calls"]:
+                                for tc in entry["tool_calls"]:
+                                    name = tc.get("name", "tool")
+                                    args = tc.get("args", {})
+                                    action = args.get("toolAction") or args.get("toolSummary") or name
+                                    action_clean = str(action).strip('"\'')
+                                    self._broadcast_log("step", f"⚡ [Step {step_idx}] {action_clean}")
+                                    last_step_idx = step_idx
+                                    last_heartbeat = time.time()
+                            elif entry_type == "PLANNER_RESPONSE" and entry.get("content"):
+                                content = str(entry.get("content", "")).strip()
+                                if content:
+                                    for cline in content.splitlines():
+                                        if cline.strip():
+                                            self._broadcast_log("stdout", cline)
+                                    last_step_idx = step_idx
+                                    last_heartbeat = time.time()
+                        except Exception:
+                            pass
+                    else:
+                        now = time.time()
+                        if now - last_heartbeat >= 8.0:
+                            elapsed = int(now - start_time)
+                            step_str = f"at Step {last_step_idx}" if last_step_idx >= 0 else "planning initial actions"
+                            self._broadcast_log("system", f"⏳ AGY is actively working ({step_str}, {elapsed}s elapsed)...")
+                            last_heartbeat = now
+                        time.sleep(0.5)
+
+                # Final flush
+                for line in f:
+                    line = line.strip()
+                    if not line:
+                        continue
+                    try:
+                        entry = json.loads(line)
+                        if entry.get("type") == "PLANNER_RESPONSE" and entry.get("content"):
+                            content = str(entry.get("content", "")).strip()
+                            for cline in content.splitlines():
+                                if cline.strip():
+                                    self._broadcast_log("stdout", cline)
+                    except Exception:
+                        pass
+        except Exception as e:
+            logger.error("Error reading transcript: %s", e)
 
     def _worker_loop(self, prompt: str, mode: str, send_telegram: bool) -> None:
         """Subprocess execution loop capturing stdout and stderr."""
@@ -162,6 +271,14 @@ class AgyRunner:
                 universal_newlines=True,
                 env=env,
             )
+
+            # Launch transcript watcher thread for live turn streaming
+            watcher_thread = threading.Thread(
+                target=self._tail_transcript_loop,
+                args=(prompt, start_time),
+                daemon=True,
+            )
+            watcher_thread.start()
 
             if self.process.stdout:
                 for line in iter(self.process.stdout.readline, ""):

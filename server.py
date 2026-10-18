@@ -12,6 +12,7 @@ from typing import Any
 
 import json
 import queue
+import re
 import time
 
 import openpyxl
@@ -672,9 +673,11 @@ def export_devices_excel(
     activation_date: str = Query("", description="Filter by activation date"),
     newly_activated: bool = Query(False, description="Filter newly activated devices"),
     category_name: str = Query("", description="Optional custom category tag for filename"),
+    serials: str = Query("", description="Optional comma-separated serials to export"),
     user: dict[str, Any] = Depends(require_user),
 ) -> FileResponse:
     """Export devices matching category filters as a beautifully styled Excel (.xlsx) spreadsheet."""
+    serial_list = [s.strip() for s in serials.split(",") if s.strip()] if serials.strip() else None
     devices = database.get_filtered_devices_for_export(
         search=search,
         group_name=group,
@@ -684,10 +687,13 @@ def export_devices_excel(
         specs=specs,
         activation_date=activation_date,
         newly_activated_only=newly_activated,
+        selected_serials=serial_list,
     )
     tag = category_name.strip()
     if not tag:
         parts = []
+        if serial_list:
+            parts.append(f"selected_{len(serial_list)}_devices")
         if model and model.lower() != "all":
             parts.append(model)
         if group and group.lower() != "all":
@@ -698,6 +704,9 @@ def export_devices_excel(
             parts.append(f"color_{color}")
         if specs and specs.lower() != "all":
             parts.append(f"specs_{specs}")
+        if activation_date and activation_date.lower() != "all":
+            clean_date = re.sub(r"\s*\(UTC[+-]?\d*\)", "", activation_date).strip()
+            parts.append(f"date_{clean_date}")
         if newly_activated:
             parts.append("newly_activated")
         if search:
@@ -714,7 +723,7 @@ def export_devices_excel(
 
 @app.get("/api/devices/export-categorized-excel")
 def export_categorized_excel(
-    by: str = Query("model", description="Category field to group by: 'model', 'group', 'status', 'specs', 'color'"),
+    by: str = Query("model", description="Category field to group by: 'model', 'group', 'status', 'specs', 'color', 'activation_date'"),
     group: str = Query("", description="Optional group scope"),
     user: dict[str, Any] = Depends(require_user),
 ) -> FileResponse:
@@ -726,6 +735,8 @@ def export_categorized_excel(
         "status": "Status",
         "specs": "Specs",
         "color": "Color",
+        "activation_date": "Activation Date",
+        "date": "Activation Date",
     }
     cat_label = label_map.get(by.lower(), by.title())
     excel_path, _ = reports.generate_categorized_workbook(categorized, category_label=cat_label)
@@ -747,9 +758,11 @@ def export_devices_csv(
     activation_date: str = Query(""),
     newly_activated: bool = Query(False),
     category_name: str = Query(""),
+    serials: str = Query(""),
     user: dict[str, Any] = Depends(require_user),
 ) -> FileResponse:
     """Export devices matching category filters as a CSV spreadsheet."""
+    serial_list = [s.strip() for s in serials.split(",") if s.strip()] if serials.strip() else None
     devices = database.get_filtered_devices_for_export(
         search=search,
         group_name=group,
@@ -759,9 +772,33 @@ def export_devices_csv(
         specs=specs,
         activation_date=activation_date,
         newly_activated_only=newly_activated,
+        selected_serials=serial_list,
     )
-    tag = category_name.strip() or (model if model and model.lower() != "all" else "filtered_devices")
-    _, csv_path = reports.generate_filtered_devices_sheet(devices, custom_tag=tag)
+    tag = category_name.strip()
+    if not tag:
+        parts = []
+        if serial_list:
+            parts.append(f"selected_{len(serial_list)}_devices")
+        if model and model.lower() != "all":
+            parts.append(model)
+        if group and group.lower() != "all":
+            parts.append(f"group_{group}")
+        if status and status.lower() != "all":
+            parts.append(f"status_{status}")
+        if color and color.lower() != "all":
+            parts.append(f"color_{color}")
+        if specs and specs.lower() != "all":
+            parts.append(f"specs_{specs}")
+        if activation_date and activation_date.lower() != "all":
+            clean_date = re.sub(r"\s*\(UTC[+-]?\d*\)", "", activation_date).strip()
+            parts.append(f"date_{clean_date}")
+        if newly_activated:
+            parts.append("newly_activated")
+        if search:
+            parts.append(f"search_{search[:15]}")
+        tag = "_".join(parts) if parts else "all_devices"
+
+    _, csv_path = reports.generate_filtered_devices_sheet(devices, custom_tag=tag, sheet_title=tag[:30])
     return FileResponse(
         path=str(csv_path),
         filename=csv_path.name,

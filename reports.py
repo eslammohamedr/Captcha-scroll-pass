@@ -432,7 +432,8 @@ def generate_categorized_workbook(
     # 2. Individual Category Sheets
     used_titles: list[str] = ["Summary & Overview"]
     for cat_name, devs in categorized_devices.items():
-        base_title = re.sub(r"[\:\\/\?\*\[\]]", "_", cat_name).strip()[:28] or "Category"
+        clean_name = re.sub(r"[\:\\/\?\*\[\]]", "_", cat_name).strip().strip("'")
+        base_title = clean_name[:28].strip() or "Category"
         sheet_title = base_title
         counter = 1
         while sheet_title.lower() in [t.lower() for t in used_titles]:

@@ -10,6 +10,7 @@ import csv
 import datetime
 import hashlib
 import os
+import re
 import secrets
 import sqlite3
 import threading
@@ -682,10 +683,18 @@ def get_filtered_devices_for_export(
     specs: str = "",
     activation_date: str = "",
     newly_activated_only: bool = False,
+    selected_serials: list[str] | None = None,
 ) -> list[dict[str, Any]]:
     """Retrieve all devices matching category filters without pagination limits for Excel export."""
     query = "SELECT * FROM devices WHERE 1=1"
     params: list[Any] = []
+
+    if selected_serials:
+        clean_serials = [s.strip() for s in selected_serials if s.strip()]
+        if clean_serials:
+            placeholders = ",".join(["?"] * len(clean_serials))
+            query += f" AND serial IN ({placeholders})"
+            params.extend(clean_serials)
 
     if search.strip():
         terms = [t.strip() for t in search.strip().split() if t.strip()]
@@ -761,7 +770,7 @@ def get_devices_categorized(
     category_field: str = "model",
     group_name: str = "",
 ) -> dict[str, list[dict[str, Any]]]:
-    """Retrieve devices grouped by category (model, group, status, specs, color)."""
+    """Retrieve devices grouped by category (model, group, status, specs, color, activation_date)."""
     field_map = {
         "model": "model_name",
         "model_name": "model_name",
@@ -771,6 +780,8 @@ def get_devices_categorized(
         "is_active": "is_active",
         "color": "color",
         "specs": "specs",
+        "activation_date": "activation_date",
+        "date": "activation_date",
     }
     col = field_map.get(category_field.lower(), "model_name")
 
@@ -788,8 +799,14 @@ def get_devices_categorized(
     categorized: dict[str, list[dict[str, Any]]] = {}
     for r in rows:
         val = str(r.get(col) or "").strip()
-        if not val:
-            val = "Unknown / Unassigned"
+        if not val or val in ["—", "-"]:
+            if col == "activation_date":
+                val = "Unactivated / No Date"
+            else:
+                val = "Unknown / Unassigned"
+        elif col == "activation_date":
+            cleaned_date = re.sub(r"\s*\(UTC[+-]?\d*\)", "", val).strip()
+            val = cleaned_date if cleaned_date else "Unactivated / No Date"
         elif col == "is_active":
             if val == "Yes":
                 val = "Active Devices"

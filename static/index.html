@@ -301,12 +301,104 @@
       <div class="flex items-center justify-between bg-dark-surface border border-dark-border rounded-xl px-3 py-2 text-xs shadow-sm">
         <div class="flex items-center space-x-2">
           <button onclick="switchTab('Dashboard')" class="bg-dark-card hover:bg-dark-border text-white px-2.5 py-1.5 rounded-lg border border-dark-border font-semibold flex items-center space-x-1.5 active:scale-95 transition shadow-sm" title="Return to Dashboard / Home Screen">
-            <span>🏠 Home Screen</span>
+            <span>🏠 Home</span>
           </button>
           <span class="text-dark-muted">|</span>
           <span class="font-bold text-white text-xs">Categories & Filters</span>
         </div>
         <div class="flex items-center space-x-2">
+          <!-- Download Excel Dropdown Button -->
+          <div class="relative inline-block text-left" id="exportDropdownContainer">
+            <button onclick="toggleExportMenu(event)" id="btnExportMenu" class="bg-brand-600 hover:bg-brand-500 text-white px-3 py-1.5 rounded-lg font-bold flex items-center space-x-1.5 active:scale-95 transition shadow text-xs" title="Download Excel files for categories">
+              <span>📊 Export Excel</span>
+              <svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 9l-7 7-7-7"/></svg>
+            </button>
+
+            <!-- Dropdown Menu -->
+            <div id="exportMenuDropdown" class="hidden absolute right-0 mt-2 w-72 sm:w-80 rounded-xl bg-dark-surface border border-dark-border shadow-2xl z-50 p-2 text-xs divide-y divide-dark-border/40">
+              <!-- Active Filter / Current Category -->
+              <div class="pb-2">
+                <div class="text-[10px] uppercase font-bold text-dark-muted px-2 py-1 flex items-center justify-between">
+                  <span>Current View / Filter</span>
+                  <span id="exportMenuBadgeCount" class="text-brand-500 font-mono"></span>
+                </div>
+                <button onclick="exportCurrentCategoryExcel(); closeExportMenu();" class="w-full text-left px-2.5 py-2 rounded-lg hover:bg-dark-card flex items-center space-x-2.5 text-white font-medium group transition">
+                  <span class="text-base">📊</span>
+                  <div class="flex-1 min-w-0">
+                    <div class="text-xs font-bold group-hover:text-brand-400 truncate" id="exportCurrentCategoryTitle">Download Category Excel (.xlsx)</div>
+                    <div class="text-[10px] text-dark-muted truncate" id="exportCurrentCategoryDesc">Devices matching active search & filters</div>
+                  </div>
+                </button>
+                <button onclick="exportCurrentCategoryCsv(); closeExportMenu();" class="w-full text-left px-2.5 py-1.5 rounded-lg hover:bg-dark-card flex items-center space-x-2.5 text-dark-muted hover:text-white transition">
+                  <span class="text-sm">📄</span>
+                  <span class="text-[11px]">Download Current Category as CSV</span>
+                </button>
+              </div>
+
+              <!-- Multi-Sheet Categorized Workbooks -->
+              <div class="py-2">
+                <div class="text-[10px] uppercase font-bold text-dark-muted px-2 py-1 flex items-center justify-between">
+                  <span>📑 Categorized Workbooks</span>
+                  <span class="text-[9px] text-emerald-400 font-semibold">Multi-Sheet</span>
+                </div>
+                <button onclick="exportCategorizedExcel('model'); closeExportMenu();" class="w-full text-left px-2.5 py-1.5 rounded-lg hover:bg-dark-card flex items-center space-x-2.5 text-white hover:text-brand-400 transition">
+                  <span class="text-sm">📱</span>
+                  <div class="flex-1">
+                    <div class="text-xs font-semibold">Workbook by Phone Model</div>
+                    <div class="text-[10px] text-dark-muted">Summary sheet + tab for each model</div>
+                  </div>
+                </button>
+                <button onclick="exportCategorizedExcel('specs'); closeExportMenu();" class="w-full text-left px-2.5 py-1.5 rounded-lg hover:bg-dark-card flex items-center space-x-2.5 text-white hover:text-brand-400 transition">
+                  <span class="text-sm">💾</span>
+                  <div class="flex-1">
+                    <div class="text-xs font-semibold">Workbook by RAM / Storage</div>
+                    <div class="text-[10px] text-dark-muted">Summary sheet + tab for each storage size</div>
+                  </div>
+                </button>
+                <button onclick="exportCategorizedExcel('color'); closeExportMenu();" class="w-full text-left px-2.5 py-1.5 rounded-lg hover:bg-dark-card flex items-center space-x-2.5 text-white hover:text-brand-400 transition">
+                  <span class="text-sm">🎨</span>
+                  <div class="flex-1">
+                    <div class="text-xs font-semibold">Workbook by Color</div>
+                    <div class="text-[10px] text-dark-muted">Summary sheet + tab for each device color</div>
+                  </div>
+                </button>
+                <button onclick="exportCategorizedExcel('activation_date'); closeExportMenu();" class="w-full text-left px-2.5 py-1.5 rounded-lg hover:bg-dark-card flex items-center space-x-2.5 text-white hover:text-brand-400 transition">
+                  <span class="text-sm">📅</span>
+                  <div class="flex-1">
+                    <div class="text-xs font-semibold">Workbook by Activation Date</div>
+                    <div class="text-[10px] text-dark-muted">Summary sheet + tab for each activation date</div>
+                  </div>
+                </button>
+                <button onclick="exportCategorizedExcel('status'); closeExportMenu();" class="w-full text-left px-2.5 py-1.5 rounded-lg hover:bg-dark-card flex items-center space-x-2.5 text-white hover:text-brand-400 transition">
+                  <span class="text-sm">🏷️</span>
+                  <div class="flex-1">
+                    <div class="text-xs font-semibold">Workbook by Status</div>
+                    <div class="text-[10px] text-dark-muted">Tabs for Active, Inactive, Pending, Errors</div>
+                  </div>
+                </button>
+                <button onclick="exportCategorizedExcel('group'); closeExportMenu();" class="w-full text-left px-2.5 py-1.5 rounded-lg hover:bg-dark-card flex items-center space-x-2.5 text-white hover:text-brand-400 transition">
+                  <span class="text-sm">📁</span>
+                  <div class="flex-1">
+                    <div class="text-xs font-semibold">Workbook by Group / Store</div>
+                    <div class="text-[10px] text-dark-muted">Summary sheet + tab for each store/group</div>
+                  </div>
+                </button>
+              </div>
+
+              <!-- Full Database & Full Modal Dialog -->
+              <div class="pt-2">
+                <button onclick="openExportModal(); closeExportMenu();" class="w-full text-left px-2.5 py-1.5 rounded-lg hover:bg-dark-card flex items-center space-x-2.5 text-brand-400 hover:text-brand-300 font-semibold transition">
+                  <span class="text-sm">⚡</span>
+                  <span class="text-xs">All Export Options & Custom Dialog...</span>
+                </button>
+                <a href="/api/database/export-excel" download onclick="closeExportMenu();" class="w-full text-left px-2.5 py-1.5 rounded-lg hover:bg-dark-card flex items-center space-x-2.5 text-dark-muted hover:text-white transition">
+                  <span class="text-sm">🗄️</span>
+                  <span class="text-xs">Download Entire Database (.xlsx)</span>
+                </a>
+              </div>
+            </div>
+          </div>
+
           <button onclick="promptInstallPwa()" class="text-brand-500 hover:text-brand-400 text-[11px] font-semibold flex items-center space-x-1" title="Add app to phone home screen">
             <span>📲 Add to Home</span>
           </button>
@@ -327,7 +419,10 @@
           <!-- Model Filter -->
           <div>
             <label class="block text-[10px] uppercase font-bold text-dark-muted mb-1 flex items-center justify-between">
-              <span>📱 Model</span>
+              <span class="flex items-center space-x-1">
+                <span>📱 Model</span>
+                <button onclick="exportCategorizedExcel('model')" title="Download Excel grouped by Model" class="text-dark-muted hover:text-brand-400 text-[11px] px-1 py-0.5 rounded hover:bg-dark-card transition">📥</button>
+              </span>
               <span id="labelCountModel" class="text-[9px] text-brand-500 font-mono"></span>
             </label>
             <select id="deviceFilterModel" onchange="onCategoryFilterChange()" class="w-full bg-dark-main border border-dark-border rounded-lg px-2.5 py-1.5 text-xs text-white focus:border-brand-500">
@@ -338,7 +433,10 @@
           <!-- Specs Filter -->
           <div>
             <label class="block text-[10px] uppercase font-bold text-dark-muted mb-1 flex items-center justify-between">
-              <span>💾 Specs</span>
+              <span class="flex items-center space-x-1">
+                <span>💾 Specs</span>
+                <button onclick="exportCategorizedExcel('specs')" title="Download Excel grouped by Specs" class="text-dark-muted hover:text-blue-400 text-[11px] px-1 py-0.5 rounded hover:bg-dark-card transition">📥</button>
+              </span>
               <span id="labelCountSpecs" class="text-[9px] text-brand-500 font-mono"></span>
             </label>
             <select id="deviceFilterSpecs" onchange="onCategoryFilterChange()" class="w-full bg-dark-main border border-dark-border rounded-lg px-2.5 py-1.5 text-xs text-white focus:border-brand-500">
@@ -349,7 +447,10 @@
           <!-- Color Filter -->
           <div>
             <label class="block text-[10px] uppercase font-bold text-dark-muted mb-1 flex items-center justify-between">
-              <span>🎨 Color</span>
+              <span class="flex items-center space-x-1">
+                <span>🎨 Color</span>
+                <button onclick="exportCategorizedExcel('color')" title="Download Excel grouped by Color" class="text-dark-muted hover:text-purple-400 text-[11px] px-1 py-0.5 rounded hover:bg-dark-card transition">📥</button>
+              </span>
               <span id="labelCountColor" class="text-[9px] text-brand-500 font-mono"></span>
             </label>
             <select id="deviceFilterColor" onchange="onCategoryFilterChange()" class="w-full bg-dark-main border border-dark-border rounded-lg px-2.5 py-1.5 text-xs text-white focus:border-brand-500">
@@ -360,7 +461,10 @@
           <!-- Activation Date Filter -->
           <div>
             <label class="block text-[10px] uppercase font-bold text-dark-muted mb-1 flex items-center justify-between">
-              <span>📅 Activated</span>
+              <span class="flex items-center space-x-1">
+                <span>📅 Activated</span>
+                <button onclick="exportCategorizedExcel('activation_date')" title="Download Excel grouped by Activation Date" class="text-dark-muted hover:text-emerald-400 text-[11px] px-1 py-0.5 rounded hover:bg-dark-card transition">📥</button>
+              </span>
               <span id="labelCountActivationDate" class="text-[9px] text-brand-500 font-mono"></span>
             </label>
             <select id="deviceFilterActivationDate" onchange="onCategoryFilterChange()" class="w-full bg-dark-main border border-dark-border rounded-lg px-2.5 py-1.5 text-xs text-white focus:border-brand-500">
@@ -395,6 +499,9 @@
       <div id="selectionActionBar" class="hidden bg-brand-600/20 border border-brand-500/40 rounded-xl p-2.5 flex items-center justify-between text-xs">
         <span class="text-white font-medium"><span id="selectedCountSpan">0</span> selected</span>
         <div class="flex items-center space-x-2">
+          <button onclick="exportSelectedDevicesExcel()" class="bg-dark-card hover:bg-dark-border text-white font-semibold px-2.5 py-1.5 rounded-lg border border-dark-border active:scale-95 transition flex items-center space-x-1 text-xs shadow-sm">
+            <span>📊 Export Selected</span>
+          </button>
           <button onclick="runSelectedDevices()" class="bg-brand-600 text-white font-bold px-3 py-1.5 rounded-lg active:scale-95 shadow">Run Selected</button>
           <button onclick="deleteSelectedDevices()" class="bg-red-500/20 text-red-400 font-semibold px-2.5 py-1.5 rounded-lg active:scale-95">Delete</button>
         </div>
@@ -404,6 +511,9 @@
       <div class="flex items-center justify-between px-1 text-xs text-dark-muted">
         <span id="devicesListCountText">Showing 0 devices</span>
         <div class="flex items-center space-x-2">
+          <button id="btnQuickExportCategory" onclick="exportCurrentCategoryExcel()" class="bg-emerald-600/20 hover:bg-emerald-600/30 text-emerald-400 border border-emerald-500/40 font-bold px-2.5 py-1 rounded text-[11px] active:scale-95 transition flex items-center space-x-1 shadow-sm" title="Download Excel (.xlsx) of devices matching the current category filter">
+            <span>📊 Download Category Excel</span>
+          </button>
           <button id="btnRetryErrorsView" onclick="triggerRunErrorsOnly()" class="hidden bg-red-500/20 hover:bg-red-500/30 text-red-400 font-bold px-2 py-1 rounded text-[11px] border border-red-500/30 active:scale-95 transition flex items-center space-x-1">
             <span>⚡ Retry All Errors</span>
           </button>
@@ -975,10 +1085,146 @@
     </div>
   </div>
 
+  <!-- CATEGORY EXCEL EXPORT MODAL -->
+  <div id="modalExportExcel" class="hidden fixed inset-0 z-50 bg-black/75 backdrop-blur-sm flex items-center justify-center p-4 overflow-y-auto">
+    <div class="bg-dark-surface border border-dark-border rounded-2xl w-full max-w-lg p-5 space-y-4 shadow-2xl my-auto">
+      <div class="flex items-center justify-between border-b border-dark-border/60 pb-3">
+        <div class="flex items-center space-x-2.5">
+          <div class="w-8 h-8 rounded-xl bg-gradient-to-tr from-brand-600 to-emerald-500 flex items-center justify-center text-white text-base shadow-sm">
+            📊
+          </div>
+          <div>
+            <h3 class="text-sm font-bold text-white">Download Categories in Devices</h3>
+            <p class="text-[11px] text-dark-muted">Export filtered categories or multi-tab organized workbooks</p>
+          </div>
+        </div>
+        <button onclick="closeExportModal()" class="text-dark-muted hover:text-white text-lg font-bold px-1">&times;</button>
+      </div>
+
+      <!-- Scope Group Selector -->
+      <div class="flex items-center justify-between bg-dark-main border border-dark-border rounded-xl p-2.5 text-xs">
+        <div class="flex items-center space-x-2">
+          <span class="text-dark-muted">Scope Group:</span>
+          <select id="modalExportGroupScope" onchange="onExportModalGroupChange(this.value)" class="bg-dark-card border border-dark-border rounded-lg px-2.5 py-1 text-xs text-white focus:border-brand-500">
+            <option value="all">All Groups</option>
+          </select>
+        </div>
+        <span id="modalExportTotalCount" class="text-[11px] text-brand-400 font-mono">Loading...</span>
+      </div>
+
+      <!-- Option A: Current Filtered View / Selected Category -->
+      <div class="bg-dark-main border border-dark-border rounded-xl p-3.5 space-y-2.5">
+        <div class="flex items-center justify-between">
+          <div class="font-bold text-white text-xs flex items-center space-x-1.5">
+            <span>🎯 Current Category Filter</span>
+          </div>
+          <span id="modalActiveFiltersLabel" class="text-[10px] text-brand-400 font-semibold truncate max-w-[200px]">All Devices</span>
+        </div>
+        <p class="text-[11px] text-dark-muted">Downloads an Excel spreadsheet containing devices matching your current active category dropdowns, search query, and status filters.</p>
+        <div class="flex items-center space-x-2 pt-1">
+          <button onclick="exportCurrentCategoryExcel(); closeExportModal();" class="flex-1 bg-brand-600 hover:bg-brand-500 text-white font-bold py-2 px-3 rounded-lg active:scale-95 transition text-xs flex items-center justify-center space-x-1.5 shadow">
+            <span>📊 Download Filtered Excel (.xlsx)</span>
+          </button>
+          <button onclick="exportCurrentCategoryCsv(); closeExportModal();" class="bg-dark-card hover:bg-dark-border border border-dark-border text-dark-muted hover:text-white font-semibold py-2 px-3 rounded-lg active:scale-95 transition text-xs flex items-center space-x-1">
+            <span>📄 CSV</span>
+          </button>
+        </div>
+      </div>
+
+      <!-- Option B: Multi-Sheet Categorized Workbooks -->
+      <div class="space-y-2">
+        <div class="flex items-center justify-between">
+          <span class="text-[11px] uppercase font-bold text-white tracking-wider flex items-center space-x-1 text-brand-400">
+            <span>📑 Multi-Sheet Categorized Workbooks</span>
+          </span>
+          <span class="text-[10px] text-dark-muted">Auto Summary + 1 Tab Per Category</span>
+        </div>
+
+        <div class="grid grid-cols-1 sm:grid-cols-2 gap-2 text-xs">
+          <!-- By Model -->
+          <button onclick="exportCategorizedFromModal('model')" class="p-3 bg-dark-main hover:bg-dark-card border border-dark-border hover:border-brand-500/50 rounded-xl text-left transition group active:scale-95">
+            <div class="flex items-center justify-between mb-1">
+              <span class="font-bold text-white group-hover:text-brand-400 flex items-center space-x-1.5">
+                <span>📱 Phone Model</span>
+              </span>
+              <span class="text-xs text-dark-muted group-hover:text-brand-400 font-bold">📥 .xlsx</span>
+            </div>
+            <p class="text-[10px] text-dark-muted">Separate sheet for each model (OPPO A60, Reno 11, etc.) with overview.</p>
+          </button>
+
+          <!-- By Specs -->
+          <button onclick="exportCategorizedFromModal('specs')" class="p-3 bg-dark-main hover:bg-dark-card border border-dark-border hover:border-blue-500/50 rounded-xl text-left transition group active:scale-95">
+            <div class="flex items-center justify-between mb-1">
+              <span class="font-bold text-white group-hover:text-blue-400 flex items-center space-x-1.5">
+                <span>💾 RAM / Storage</span>
+              </span>
+              <span class="text-xs text-dark-muted group-hover:text-blue-400 font-bold">📥 .xlsx</span>
+            </div>
+            <p class="text-[10px] text-dark-muted">Separate sheet for each memory configuration (8GB+256GB, etc.).</p>
+          </button>
+
+          <!-- By Color -->
+          <button onclick="exportCategorizedFromModal('color')" class="p-3 bg-dark-main hover:bg-dark-card border border-dark-border hover:border-purple-500/50 rounded-xl text-left transition group active:scale-95">
+            <div class="flex items-center justify-between mb-1">
+              <span class="font-bold text-white group-hover:text-purple-400 flex items-center space-x-1.5">
+                <span>🎨 Device Color</span>
+              </span>
+              <span class="text-xs text-dark-muted group-hover:text-purple-400 font-bold">📥 .xlsx</span>
+            </div>
+            <p class="text-[10px] text-dark-muted">Separate sheet for each color (Midnight Black, Ice Blue, etc.).</p>
+          </button>
+
+          <!-- By Activation Date -->
+          <button onclick="exportCategorizedFromModal('activation_date')" class="p-3 bg-dark-main hover:bg-dark-card border border-dark-border hover:border-emerald-500/50 rounded-xl text-left transition group active:scale-95">
+            <div class="flex items-center justify-between mb-1">
+              <span class="font-bold text-white group-hover:text-emerald-400 flex items-center space-x-1.5">
+                <span>📅 Activation Date</span>
+              </span>
+              <span class="text-xs text-dark-muted group-hover:text-emerald-400 font-bold">📥 .xlsx</span>
+            </div>
+            <p class="text-[10px] text-dark-muted">Separate sheet for each activation date with total summaries.</p>
+          </button>
+
+          <!-- By Status -->
+          <button onclick="exportCategorizedFromModal('status')" class="p-3 bg-dark-main hover:bg-dark-card border border-dark-border hover:border-amber-500/50 rounded-xl text-left transition group active:scale-95">
+            <div class="flex items-center justify-between mb-1">
+              <span class="font-bold text-white group-hover:text-amber-400 flex items-center space-x-1.5">
+                <span>🏷️ Check Status</span>
+              </span>
+              <span class="text-xs text-dark-muted group-hover:text-amber-400 font-bold">📥 .xlsx</span>
+            </div>
+            <p class="text-[10px] text-dark-muted">Tabs for Active Devices, Inactive Devices, Pending, and Errors.</p>
+          </button>
+
+          <!-- By Group -->
+          <button onclick="exportCategorizedFromModal('group')" class="p-3 bg-dark-main hover:bg-dark-card border border-dark-border hover:border-brand-500/50 rounded-xl text-left transition group active:scale-95">
+            <div class="flex items-center justify-between mb-1">
+              <span class="font-bold text-white group-hover:text-brand-400 flex items-center space-x-1.5">
+                <span>📁 Device Group / Store</span>
+              </span>
+              <span class="text-xs text-dark-muted group-hover:text-brand-400 font-bold">📥 .xlsx</span>
+            </div>
+            <p class="text-[10px] text-dark-muted">Separate sheet for each uploaded store or branch group.</p>
+          </button>
+        </div>
+      </div>
+
+      <!-- Footer Buttons -->
+      <div class="flex items-center justify-between pt-2 border-t border-dark-border/60">
+        <a href="/api/database/export-excel" download onclick="closeExportModal();" class="text-dark-muted hover:text-white text-xs font-semibold flex items-center space-x-1">
+          <span>🗄️ Export Full Database (.xlsx)</span>
+        </a>
+        <button onclick="closeExportModal()" class="bg-dark-card hover:bg-dark-border text-white text-xs font-semibold px-4 py-2 rounded-lg active:scale-95 transition">
+          Close
+        </button>
+      </div>
+    </div>
+  </div>
+
   <!-- TOAST NOTIFICATION CONTAINER -->
   <div id="toastContainer" class="fixed top-4 right-4 z-50 space-y-2 pointer-events-none"></div>
 
   <!-- Application Logic -->
-  <script src="/static/app.js?v=2.2.0"></script>
+  <script src="/static/app.js?v=2.3.0"></script>
 </body>
 </html>

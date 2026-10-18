@@ -874,6 +874,9 @@ function renderActiveFilterChips() {
     container.innerHTML = `
       <span class="text-[10px] text-dark-muted font-semibold uppercase mr-1">Active:</span>
       ${chips.join('')}
+      <button onclick="exportCurrentCategoryExcel()" class="bg-brand-600 hover:bg-brand-500 text-white font-bold px-2 py-0.5 rounded-md text-[11px] flex items-center space-x-1 active:scale-95 shadow transition" title="Download Excel for this filtered category">
+        <span>📊 Download Category Excel</span>
+      </button>
       <button onclick="resetAllFilters()" class="text-[11px] font-bold text-red-400 hover:text-red-300 hover:underline px-1 py-0.5 ml-1">
         Reset All ✕
       </button>
@@ -1045,6 +1048,13 @@ async function loadDevices() {
     document.getElementById('pageInfoSpan').innerText = `Page ${data.page} of ${data.pages}`;
     document.getElementById('btnPrevPage').disabled = data.page <= 1;
     document.getElementById('btnNextPage').disabled = data.page >= data.pages;
+
+    if (typeof updateQuickExportCategoryButton === 'function') {
+      updateQuickExportCategoryButton(data.total);
+    }
+    if (typeof updateExportMenuLabels === 'function') {
+      updateExportMenuLabels();
+    }
 
     if (data.devices.length === 0) {
       container.innerHTML = '<div class="py-8 text-center text-xs text-dark-muted">No devices match your filter. Click "+ Add Serials" above.</div>';
@@ -1833,6 +1843,8 @@ function appendTerminalLine(item) {
   // Format line styling based on stream / content
   if (stream === 'system') {
     lineEl.className += ' text-sky-400 font-semibold';
+  } else if (stream === 'step') {
+    lineEl.className += ' text-cyan-300 font-semibold';
   } else if (stream === 'error' || text.toLowerCase().includes('error:') || text.toLowerCase().includes('failed:')) {
     lineEl.className += ' text-red-400';
   } else if (text.startsWith('>') || text.startsWith('$')) {
@@ -1980,3 +1992,214 @@ function escapeHtml(str) {
     .replace(/"/g, '&quot;')
     .replace(/'/g, '&#039;');
 }
+
+// --- Category Excel & CSV Export Features ---
+
+function getActiveCategorySummaryLabel() {
+  const parts = [];
+  if (state.modelFilter && state.modelFilter !== 'all') parts.push(state.modelFilter);
+  if (state.specsFilter && state.specsFilter !== 'all') parts.push(state.specsFilter);
+  if (state.colorFilter && state.colorFilter !== 'all') parts.push(state.colorFilter);
+  if (state.activationDateFilter && state.activationDateFilter !== 'all') {
+    const cleanD = state.activationDateFilter.replace(/\s*\(UTC[+-]?\d*\)/i, '').trim();
+    parts.push(cleanD);
+  }
+  if (state.statusFilter && state.statusFilter !== 'all') parts.push(state.statusFilter);
+  if (state.selectedGroup && state.selectedGroup !== 'all') parts.push(`Group: ${state.selectedGroup}`);
+  if (state.newlyActivatedFilter) parts.push('Detected Today');
+  if (state.searchQuery) parts.push(`"${state.searchQuery}"`);
+  return parts.join(' • ');
+}
+
+function getDeviceExportUrl(format = 'excel', customTag = '') {
+  const params = new URLSearchParams();
+  if (state.searchQuery) params.set('search', state.searchQuery);
+  if (state.selectedGroup && state.selectedGroup !== 'all') params.set('group', state.selectedGroup);
+  if (state.statusFilter && state.statusFilter !== 'all') params.set('status', state.statusFilter);
+  if (state.modelFilter && state.modelFilter !== 'all') params.set('model', state.modelFilter);
+  if (state.specsFilter && state.specsFilter !== 'all') params.set('specs', state.specsFilter);
+  if (state.colorFilter && state.colorFilter !== 'all') params.set('color', state.colorFilter);
+  if (state.activationDateFilter && state.activationDateFilter !== 'all') params.set('activation_date', state.activationDateFilter);
+  if (state.newlyActivatedFilter) params.set('newly_activated', 'true');
+
+  if (customTag) {
+    params.set('category_name', customTag);
+  } else {
+    const parts = [];
+    if (state.modelFilter && state.modelFilter !== 'all') parts.push(state.modelFilter);
+    if (state.specsFilter && state.specsFilter !== 'all') parts.push(state.specsFilter);
+    if (state.colorFilter && state.colorFilter !== 'all') parts.push(state.colorFilter);
+    if (state.activationDateFilter && state.activationDateFilter !== 'all') {
+      const cleanDate = state.activationDateFilter.replace(/\s*\(UTC[+-]?\d*\)/i, '').trim();
+      parts.push(`date_${cleanDate}`);
+    }
+    if (state.statusFilter && state.statusFilter !== 'all') parts.push(state.statusFilter);
+    if (state.selectedGroup && state.selectedGroup !== 'all') parts.push(`group_${state.selectedGroup}`);
+    if (state.newlyActivatedFilter) parts.push('newly_activated');
+    if (state.searchQuery) parts.push(`search_${state.searchQuery.slice(0, 15)}`);
+    if (parts.length > 0) {
+      params.set('category_name', parts.join('_'));
+    }
+  }
+
+  const endpoint = format === 'csv' ? '/api/devices/export-csv' : '/api/devices/export-excel';
+  const query = params.toString();
+  return query ? `${endpoint}?${query}` : endpoint;
+}
+
+function downloadFileByUrl(url) {
+  const link = document.createElement('a');
+  link.href = url;
+  link.setAttribute('download', '');
+  document.body.appendChild(link);
+  link.click();
+  document.body.removeChild(link);
+}
+
+function exportCurrentCategoryExcel() {
+  const url = getDeviceExportUrl('excel');
+  const catLabel = getActiveCategorySummaryLabel() || 'All Devices';
+  showToast(`Generating Excel for ${catLabel}...`, 'info');
+  downloadFileByUrl(url);
+}
+
+function exportCurrentCategoryCsv() {
+  const url = getDeviceExportUrl('csv');
+  const catLabel = getActiveCategorySummaryLabel() || 'All Devices';
+  showToast(`Generating CSV for ${catLabel}...`, 'info');
+  downloadFileByUrl(url);
+}
+
+function exportCategorizedExcel(byField, groupScope = '') {
+  const scope = groupScope || (state.selectedGroup && state.selectedGroup !== 'all' ? state.selectedGroup : '');
+  const params = new URLSearchParams({ by: byField });
+  if (scope && scope !== 'all') params.set('group', scope);
+  const url = `/api/devices/export-categorized-excel?${params.toString()}`;
+  const labelMap = {
+    model: 'Phone Model',
+    specs: 'RAM / Storage',
+    color: 'Color',
+    activation_date: 'Activation Date',
+    status: 'Status',
+    group: 'Group / Store'
+  };
+  const label = labelMap[byField] || byField;
+  showToast(`Generating Multi-Sheet Workbook by ${label}...`, 'info');
+  downloadFileByUrl(url);
+}
+
+function exportSelectedDevicesExcel() {
+  if (!state.selectedSerials || state.selectedSerials.size === 0) {
+    showToast('No devices selected to export', 'warning');
+    return;
+  }
+  const serialsArr = Array.from(state.selectedSerials);
+  const params = new URLSearchParams({
+    serials: serialsArr.join(','),
+    category_name: `selected_${serialsArr.length}_devices`
+  });
+  const url = `/api/devices/export-excel?${params.toString()}`;
+  showToast(`Exporting ${serialsArr.length} selected devices to Excel...`, 'info');
+  downloadFileByUrl(url);
+}
+
+function toggleExportMenu(e) {
+  if (e) e.stopPropagation();
+  const dropdown = document.getElementById('exportMenuDropdown');
+  if (!dropdown) return;
+  const isHidden = dropdown.classList.contains('hidden');
+  if (isHidden) {
+    updateExportMenuLabels();
+    dropdown.classList.remove('hidden');
+  } else {
+    dropdown.classList.add('hidden');
+  }
+}
+
+function closeExportMenu() {
+  const dropdown = document.getElementById('exportMenuDropdown');
+  if (dropdown) dropdown.classList.add('hidden');
+}
+
+function updateExportMenuLabels() {
+  const activeLabel = getActiveCategorySummaryLabel();
+  const titleEl = document.getElementById('exportCurrentCategoryTitle');
+  const descEl = document.getElementById('exportCurrentCategoryDesc');
+  const badgeEl = document.getElementById('exportMenuBadgeCount');
+
+  if (badgeEl) {
+    badgeEl.innerText = state.totalDevices !== undefined ? `${state.totalDevices} devices` : '';
+  }
+
+  if (activeLabel) {
+    if (titleEl) titleEl.innerText = `Download: ${activeLabel} (.xlsx)`;
+    if (descEl) descEl.innerText = `Export ${state.totalDevices || 0} devices matching active filters`;
+  } else {
+    if (titleEl) titleEl.innerText = 'Download Category Excel (.xlsx)';
+    if (descEl) descEl.innerText = `All ${state.totalDevices || 0} devices in current view`;
+  }
+}
+
+function updateQuickExportCategoryButton(total) {
+  const btn = document.getElementById('btnQuickExportCategory');
+  if (!btn) return;
+  const activeLabel = getActiveCategorySummaryLabel();
+  if (activeLabel) {
+    const shortLabel = activeLabel.length > 18 ? activeLabel.slice(0, 18) + '...' : activeLabel;
+    btn.innerHTML = `<span>📊 Download ${escapeHtml(shortLabel)} (.xlsx)</span>`;
+    btn.title = `Download Excel (.xlsx) for ${activeLabel} (${total} devices)`;
+  } else {
+    btn.innerHTML = `<span>📊 Download Category Excel</span>`;
+    btn.title = `Download Excel (.xlsx) for current view (${total} devices)`;
+  }
+}
+
+function openExportModal() {
+  const modal = document.getElementById('modalExportExcel');
+  if (!modal) return;
+  modal.classList.remove('hidden');
+
+  const groupSelect = document.getElementById('modalExportGroupScope');
+  if (groupSelect && state.groups) {
+    let opts = '<option value="all">All Groups (Whole Database)</option>';
+    state.groups.forEach(g => {
+      opts += `<option value="${escapeHtml(g.name)}" ${state.selectedGroup === g.name ? 'selected' : ''}>${escapeHtml(g.name)} (${g.total_devices} devices)</option>`;
+    });
+    groupSelect.innerHTML = opts;
+  }
+
+  const activeLabel = getActiveCategorySummaryLabel();
+  const labelEl = document.getElementById('modalActiveFiltersLabel');
+  if (labelEl) {
+    labelEl.innerText = activeLabel || 'All Devices (No Filters)';
+  }
+
+  const totalEl = document.getElementById('modalExportTotalCount');
+  if (totalEl) {
+    totalEl.innerText = `${state.totalDevices || 0} devices`;
+  }
+}
+
+function closeExportModal() {
+  const modal = document.getElementById('modalExportExcel');
+  if (modal) modal.classList.add('hidden');
+}
+
+function onExportModalGroupChange(group) {
+  // Option to scope modal export
+}
+
+function exportCategorizedFromModal(byField) {
+  const groupSelect = document.getElementById('modalExportGroupScope');
+  const scope = groupSelect ? groupSelect.value : '';
+  exportCategorizedExcel(byField, scope);
+  closeExportModal();
+}
+
+// Global click outside listener to close export menu
+document.addEventListener('click', (e) => {
+  const container = document.getElementById('exportDropdownContainer');
+  if (container && !container.contains(e.target)) {
+    closeExportMenu();
+  }
+});
