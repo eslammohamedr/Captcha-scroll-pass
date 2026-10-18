@@ -15,7 +15,7 @@ import queue
 import time
 
 import openpyxl
-from fastapi import FastAPI, File, HTTPException, Query, UploadFile
+from fastapi import FastAPI, File, HTTPException, Query, Request, Response, UploadFile
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import FileResponse, HTMLResponse, StreamingResponse
 from fastapi.staticfiles import StaticFiles
@@ -612,6 +612,48 @@ def stop_agy_command() -> dict[str, Any]:
     """Stop running AGY process."""
     ok = agy_service.agy_runner.stop()
     return {"success": ok}
+
+
+@app.get("/api/launcher/download")
+def download_launcher(
+    request: Request,
+    platform: str = Query("windows", description="'windows' for .url or 'linux' for .desktop")
+) -> Response:
+    """Generate and return a ready-to-use desktop shortcut for 1-tap launching."""
+    host = request.headers.get("host") or "localhost:8000"
+    scheme = "https" if request.url.scheme == "https" else "http"
+    base_url = f"{scheme}://{host}/"
+
+    if platform == "linux":
+        content = (
+            "[Desktop Entry]\n"
+            "Version=1.0\n"
+            "Type=Application\n"
+            "Name=OPPO Sales Monitor\n"
+            "Comment=OPPO Sales Activation Monitor\n"
+            f"Exec=xdg-open {base_url}\n"
+            f"Icon={base_url}static/icon-192.png\n"
+            "Terminal=false\n"
+            "Categories=Utility;\n"
+        )
+        return Response(
+            content=content,
+            media_type="application/x-desktop",
+            headers={"Content-Disposition": 'attachment; filename="OPPO_Sales_Monitor.desktop"'}
+        )
+    else:
+        # Windows .url Internet Shortcut
+        content = (
+            "[InternetShortcut]\r\n"
+            f"URL={base_url}\r\n"
+            "IconIndex=0\r\n"
+            f"IconFile={base_url}static/icon-192.png\r\n"
+        )
+        return Response(
+            content=content,
+            media_type="application/x-mswinurl",
+            headers={"Content-Disposition": 'attachment; filename="OPPO_Sales_Monitor.url"'}
+        )
 
 
 # --- Static Files & Root View ---

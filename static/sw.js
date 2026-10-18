@@ -1,11 +1,13 @@
 // Service Worker for OPPO Sales Monitor PWA
-const CACHE_NAME = 'oppo-monitor-v2';
+const CACHE_NAME = 'oppo-monitor-v3';
 const ASSETS = [
   '/',
   '/static/index.html',
   '/static/app.js',
   '/static/manifest.json',
-  '/static/icon.svg'
+  '/static/icon.svg',
+  '/static/icon-192.png',
+  '/static/icon-512.png'
 ];
 
 self.addEventListener('install', (event) => {

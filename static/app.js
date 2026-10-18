@@ -93,53 +93,101 @@ function initPwaInstall() {
   window.addEventListener('beforeinstallprompt', (e) => {
     e.preventDefault();
     state.deferredInstallPrompt = e;
+    console.log('PWA: Native beforeinstallprompt captured!');
     const btnHeader = document.getElementById('btnInstallPwaHeader');
     const banner = document.getElementById('pwaInstallBanner');
+    const directBtn = document.getElementById('btnDirectNativeInstall');
     if (btnHeader) btnHeader.classList.remove('hidden');
     if (banner && !sessionStorage.getItem('pwa_banner_dismissed')) {
       banner.classList.remove('hidden');
     }
+    if (directBtn) directBtn.classList.remove('hidden');
   });
 
   window.addEventListener('appinstalled', () => {
     state.deferredInstallPrompt = null;
     const btnHeader = document.getElementById('btnInstallPwaHeader');
     const banner = document.getElementById('pwaInstallBanner');
+    const directBtn = document.getElementById('btnDirectNativeInstall');
     if (btnHeader) btnHeader.classList.add('hidden');
     if (banner) banner.classList.add('hidden');
-    showToast('OPPO Sales Monitor added to Home Screen! 🎉', 'success');
+    if (directBtn) directBtn.classList.add('hidden');
+    closePwaModal();
+    showToast('OPPO Sales Monitor installed to Home Screen! 🎉', 'success');
   });
 
   // If already running in standalone PWA mode, hide the banner
   if (window.matchMedia('(display-mode: standalone)').matches || window.navigator.standalone === true) {
     const banner = document.getElementById('pwaInstallBanner');
+    const btnHeader = document.getElementById('btnInstallPwaHeader');
     if (banner) banner.classList.add('hidden');
+    if (btnHeader) btnHeader.classList.add('hidden');
   }
 }
 
 function promptInstallPwa() {
   if (state.deferredInstallPrompt) {
-    state.deferredInstallPrompt.prompt();
-    state.deferredInstallPrompt.userChoice.then((choiceResult) => {
-      if (choiceResult && choiceResult.outcome === 'accepted') {
-        showToast('Installing OPPO Monitor to Home Screen...', 'success');
-      }
-      state.deferredInstallPrompt = null;
-    });
+    try {
+      state.deferredInstallPrompt.prompt();
+      state.deferredInstallPrompt.userChoice.then((choiceResult) => {
+        if (choiceResult && choiceResult.outcome === 'accepted') {
+          showToast('Installing OPPO Monitor to Home Screen...', 'success');
+          const banner = document.getElementById('pwaInstallBanner');
+          if (banner) banner.classList.add('hidden');
+        }
+        state.deferredInstallPrompt = null;
+      });
+      return;
+    } catch (e) {
+      console.warn('Native prompt failed:', e);
+    }
+  }
+
+  // Open interactive modal with direct 1-click shortcut downloads and guides
+  openPwaModal();
+}
+
+function promptDirectNativeInstall() {
+  if (state.deferredInstallPrompt) {
+    try {
+      state.deferredInstallPrompt.prompt();
+      state.deferredInstallPrompt.userChoice.then((choiceResult) => {
+        if (choiceResult && choiceResult.outcome === 'accepted') {
+          showToast('Installing OPPO Monitor to Home Screen...', 'success');
+          closePwaModal();
+        }
+        state.deferredInstallPrompt = null;
+      });
+    } catch (e) {
+      showToast('Could not launch browser install prompt', 'warning');
+    }
   } else {
-    // Show manual step-by-step modal for iOS Safari / desktop
-    openPwaModal();
+    showToast('Native browser prompt unavailable. Use the 1-click launcher or browser menu.', 'info');
   }
 }
 
 function openPwaModal() {
   const modal = document.getElementById('modalPwaInstall');
-  if (modal) modal.classList.remove('hidden');
+  if (modal) {
+    modal.classList.remove('hidden');
+    modal.style.display = 'flex';
+    const directBtn = document.getElementById('btnDirectNativeInstall');
+    if (directBtn) {
+      if (state.deferredInstallPrompt) {
+        directBtn.classList.remove('hidden');
+      } else {
+        directBtn.classList.add('hidden');
+      }
+    }
+  }
 }
 
 function closePwaModal() {
   const modal = document.getElementById('modalPwaInstall');
-  if (modal) modal.classList.add('hidden');
+  if (modal) {
+    modal.classList.add('hidden');
+    modal.style.display = 'none';
+  }
 }
 
 function dismissInstallBanner() {

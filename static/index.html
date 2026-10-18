@@ -867,42 +867,83 @@
 
   <!-- PWA INSTALL INSTRUCTIONS MODAL -->
   <div id="modalPwaInstall" class="hidden fixed inset-0 z-50 bg-black/75 backdrop-blur-sm flex items-center justify-center p-4">
-    <div class="bg-dark-surface border border-dark-border rounded-2xl w-full max-w-sm p-5 space-y-4 shadow-2xl text-center">
-      <div class="w-12 h-12 rounded-2xl bg-gradient-to-tr from-brand-600 to-brand-500 mx-auto flex items-center justify-center shadow-lg shadow-brand-500/30 text-2xl">
-        📲
-      </div>
-      <div>
-        <h3 class="text-base font-bold text-white">Add to Home Screen</h3>
-        <p class="text-xs text-dark-muted mt-1">Install the OPPO Sales Monitor directly onto your phone for 1-tap instant access.</p>
-      </div>
-
-      <div class="text-left bg-dark-main border border-dark-border rounded-xl p-3.5 space-y-2.5 text-xs">
-        <div class="font-bold text-white text-[11px] uppercase tracking-wider text-brand-400">iOS (iPhone Safari):</div>
-        <div class="flex items-start space-x-2 text-dark-text">
-          <span class="font-bold text-white">1.</span>
-          <span>Tap the <b class="text-white">Share button</b> (<span class="font-mono">⎋</span> square with arrow at the bottom).</span>
+    <div class="bg-dark-surface border border-dark-border rounded-2xl w-full max-w-md p-5 space-y-4 shadow-2xl text-center">
+      <div class="flex items-center justify-between border-b border-dark-border/60 pb-3">
+        <div class="flex items-center space-x-2">
+          <div class="w-8 h-8 rounded-xl bg-gradient-to-tr from-brand-600 to-brand-500 flex items-center justify-center text-white text-base shadow-sm">
+            📲
+          </div>
+          <div class="text-left">
+            <h3 class="text-sm font-bold text-white">Install & 1-Tap Fast Launch</h3>
+            <p class="text-[11px] text-dark-muted">Add to your Phone Home Screen or PC Desktop</p>
+          </div>
         </div>
-        <div class="flex items-start space-x-2 text-dark-text">
-          <span class="font-bold text-white">2.</span>
-          <span>Scroll down and tap <b class="text-emerald-400">"Add to Home Screen" ➕</b>.</span>
-        </div>
-
-        <div class="border-t border-dark-border/60 my-2"></div>
-
-        <div class="font-bold text-white text-[11px] uppercase tracking-wider text-brand-400">Android (Chrome / Edge / Samsung):</div>
-        <div class="flex items-start space-x-2 text-dark-text">
-          <span class="font-bold text-white">1.</span>
-          <span>Tap the browser menu (<b class="text-white">⋮</b> 3 dots in upper-right corner).</span>
-        </div>
-        <div class="flex items-start space-x-2 text-dark-text">
-          <span class="font-bold text-white">2.</span>
-          <span>Select <b class="text-emerald-400">"Add to Home screen"</b> or <b class="text-emerald-400">"Install app"</b>.</span>
-        </div>
+        <button onclick="closePwaModal()" class="text-dark-muted hover:text-white text-lg font-bold px-1">&times;</button>
       </div>
 
-      <button onclick="closePwaModal()" class="w-full bg-brand-600 hover:bg-brand-500 text-white font-bold py-2.5 rounded-xl active:scale-95 transition text-xs shadow">
-        Got it!
+      <!-- Direct 1-Tap Native Install (Visible when browser allows it) -->
+      <button id="btnDirectNativeInstall" onclick="promptDirectNativeInstall()" class="hidden w-full bg-gradient-to-r from-emerald-600 via-brand-600 to-brand-500 hover:from-emerald-500 hover:to-brand-400 text-white font-bold py-3 px-4 rounded-xl shadow-lg shadow-brand-500/25 active:scale-95 transition text-xs flex items-center justify-center space-x-2">
+        <span>⚡ Install App Now (1-Tap)</span>
       </button>
+
+      <!-- Instant Desktop Shortcut Downloads (Windows / Linux) -->
+      <div class="space-y-1.5 text-left">
+        <label class="block text-[11px] font-bold text-white uppercase tracking-wider text-brand-400">1-Click Desktop Launcher:</label>
+        <div class="grid grid-cols-2 gap-2">
+          <a href="/api/launcher/download?platform=windows" download="OPPO_Sales_Monitor.url" class="bg-dark-card hover:bg-dark-border border border-dark-border text-white font-semibold py-2 px-3 rounded-xl active:scale-95 transition text-xs flex items-center justify-center space-x-1.5 shadow-sm text-center">
+            <span>💻 Windows (.url)</span>
+          </a>
+          <a href="/api/launcher/download?platform=linux" download="OPPO_Sales_Monitor.desktop" class="bg-dark-card hover:bg-dark-border border border-dark-border text-white font-semibold py-2 px-3 rounded-xl active:scale-95 transition text-xs flex items-center justify-center space-x-1.5 shadow-sm text-center">
+            <span>🐧 Linux (.desktop)</span>
+          </a>
+        </div>
+      </div>
+
+      <!-- Mobile & Browser Step-by-Step Guide -->
+      <div class="text-left bg-dark-main border border-dark-border rounded-xl p-3.5 space-y-3 text-xs">
+        <div>
+          <div class="font-bold text-white text-[11px] uppercase tracking-wider text-brand-400 flex items-center space-x-1">
+            <span>💻 Desktop (Chrome / Edge / Brave):</span>
+          </div>
+          <div class="text-dark-text text-[11px] mt-1">
+            Look for the <b class="text-emerald-400">Install icon (⊕)</b> in your browser's top address bar next to the bookmark star, or click the Windows launcher above.
+          </div>
+        </div>
+
+        <div class="border-t border-dark-border/50"></div>
+
+        <div>
+          <div class="font-bold text-white text-[11px] uppercase tracking-wider text-brand-400 flex items-center space-x-1">
+            <span>🤖 Android (Chrome / Samsung):</span>
+          </div>
+          <div class="text-dark-text text-[11px] mt-1 space-y-0.5">
+            <div>1. Tap the browser menu (<b class="text-white">⋮</b> 3 dots in upper-right corner).</div>
+            <div>2. Tap <b class="text-emerald-400">"Add to Home screen"</b> or <b class="text-emerald-400">"Install app"</b>.</div>
+          </div>
+        </div>
+
+        <div class="border-t border-dark-border/50"></div>
+
+        <div>
+          <div class="font-bold text-white text-[11px] uppercase tracking-wider text-brand-400 flex items-center space-x-1">
+            <span>🍏 iOS (iPhone / iPad Safari):</span>
+          </div>
+          <div class="text-dark-text text-[11px] mt-1 space-y-0.5">
+            <div>1. Tap the <b class="text-white">Share button</b> (<span class="font-mono">⎋</span> square with arrow at the bottom).</div>
+            <div>2. Scroll down and tap <b class="text-emerald-400">"Add to Home Screen" ➕</b>.</div>
+          </div>
+        </div>
+      </div>
+
+      <!-- Quick Actions -->
+      <div class="flex items-center space-x-2 pt-1">
+        <button onclick="copyToClipboard(window.location.href)" class="flex-1 bg-dark-card hover:bg-dark-border border border-dark-border text-brand-400 font-semibold py-2 px-3 rounded-xl active:scale-95 transition text-xs flex items-center justify-center space-x-1">
+          <span>📋 Copy App Link</span>
+        </button>
+        <button onclick="closePwaModal()" class="flex-1 bg-brand-600 hover:bg-brand-500 text-white font-bold py-2 px-3 rounded-xl active:scale-95 transition text-xs shadow">
+          Done
+        </button>
+      </div>
     </div>
   </div>
 
