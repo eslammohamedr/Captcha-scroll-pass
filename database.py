@@ -8,7 +8,9 @@ from __future__ import annotations
 
 import csv
 import datetime
+import hashlib
 import os
+import secrets
 import sqlite3
 import threading
 from contextlib import contextmanager
@@ -147,6 +149,151 @@ def init_db() -> None:
                 INSERT OR IGNORE INTO settings (key, value, description)
                 VALUES (?, ?, ?);
             """, (k, v, d))
+
+        # Users table
+        cur.execute("""
+            CREATE TABLE IF NOT EXISTS users (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                username TEXT UNIQUE NOT NULL,
+                password_hash TEXT NOT NULL,
+                salt TEXT NOT NULL,
+                role TEXT NOT NULL DEFAULT 'customer',
+                created_at TEXT NOT NULL
+            );
+        """)
+
+        # Sessions table
+        cur.execute("""
+            CREATE TABLE IF NOT EXISTS sessions (
+                token TEXT PRIMARY KEY,
+                username TEXT NOT NULL,
+                role TEXT NOT NULL,
+                created_at TEXT NOT NULL,
+                expires_at TEXT NOT NULL
+            );
+        """)
+
+    # Seed default user accounts
+    ensure_default_users()
+
+
+# --- Authentication & User Management ---
+
+def hash_password(password: str, salt: str | None = None) -> tuple[str, str]:
+    """Generate PBKDF2-SHA256 password hash and salt."""
+    if not salt:
+        salt = secrets.token_hex(16)
+    hashed = hashlib.pbkdf2_hmac(
+        "sha256", password.encode("utf-8"), salt.encode("utf-8"), 100000
+    ).hex()
+    return hashed, salt
+
+
+def verify_password(password: str, stored_hash: str, salt: str) -> bool:
+    """Verify password against stored PBKDF2-SHA256 hash."""
+    hashed, _ = hash_password(password, salt)
+    return secrets.compare_digest(hashed, stored_hash)
+
+
+def ensure_default_users() -> None:
+    """Ensure the required users ('eslam' admin and 'customer') exist with correct credentials."""
+    users_to_seed = [
+        ("eslam", "Solom_2040", "admin"),
+        ("customer", "1234", "customer"),
+    ]
+    now = datetime.datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+
+    with get_db_cursor() as cur:
+        for username, password, role in users_to_seed:
+            pwd_hash, salt = hash_password(password)
+            cur.execute("SELECT id FROM users WHERE username = ?;", (username,))
+            row = cur.fetchone()
+            if row:
+                cur.execute(
+                    """
+                    UPDATE users 
+                    SET password_hash = ?, salt = ?, role = ? 
+                    WHERE username = ?;
+                    """,
+                    (pwd_hash, salt, role, username),
+                )
+            else:
+                cur.execute(
+                    """
+                    INSERT INTO users (username, password_hash, salt, role, created_at)
+                    VALUES (?, ?, ?, ?, ?);
+                    """,
+                    (username, pwd_hash, salt, role, now),
+                )
+
+
+def authenticate_user(username: str, password: str) -> dict[str, Any] | None:
+    """Authenticate username and password, returning user dict if successful."""
+    username = username.strip().lower()
+    with get_db_cursor() as cur:
+        cur.execute(
+            "SELECT id, username, password_hash, salt, role FROM users WHERE LOWER(username) = ?;",
+            (username,),
+        )
+        row = cur.fetchone()
+        if not row:
+            return None
+        if verify_password(password, row["password_hash"], row["salt"]):
+            return {
+                "id": row["id"],
+                "username": row["username"],
+                "role": row["role"],
+            }
+        return None
+
+
+def create_session(username: str, role: str, duration_days: int = 30) -> str:
+    """Create a new authenticated session token and record in database."""
+    token = secrets.token_urlsafe(32)
+    now_dt = datetime.datetime.now()
+    created_at = now_dt.strftime("%Y-%m-%d %H:%M:%S")
+    expires_at = (now_dt + datetime.timedelta(days=duration_days)).strftime("%Y-%m-%d %H:%M:%S")
+
+    with get_db_cursor() as cur:
+        cur.execute(
+            """
+            INSERT INTO sessions (token, username, role, created_at, expires_at)
+            VALUES (?, ?, ?, ?, ?);
+            """,
+            (token, username, role, created_at, expires_at),
+        )
+    return token
+
+
+def get_session(token: str) -> dict[str, Any] | None:
+    """Retrieve active session by token, validating expiration."""
+    if not token:
+        return None
+    now_str = datetime.datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+    with get_db_cursor() as cur:
+        cur.execute(
+            """
+            SELECT username, role, expires_at 
+            FROM sessions 
+            WHERE token = ? AND expires_at > ?;
+            """,
+            (token, now_str),
+        )
+        row = cur.fetchone()
+        if not row:
+            return None
+        return {
+            "username": row["username"],
+            "role": row["role"],
+        }
+
+
+def delete_session(token: str) -> None:
+    """Invalidate and remove session token."""
+    if not token:
+        return
+    with get_db_cursor() as cur:
+        cur.execute("DELETE FROM sessions WHERE token = ?;", (token,))
 
 
 # --- Settings Helpers ---

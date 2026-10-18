@@ -76,8 +76,8 @@
         <span class="hidden sm:inline">Home</span>
       </button>
 
-      <!-- AGY Remote Terminal YOLO Button -->
-      <button onclick="switchTab('Terminal')" class="bg-dark-card hover:bg-dark-border text-emerald-400 border border-emerald-500/30 text-xs font-mono font-semibold px-2.5 py-2 rounded-lg flex items-center space-x-1.5 transition active:scale-95 shadow-sm" title="Remote AGY YOLO Terminal">
+      <!-- AGY Remote Terminal YOLO Button (Admin Only) -->
+      <button id="btnAgyHeader" onclick="switchTab('Terminal')" class="bg-dark-card hover:bg-dark-border text-emerald-400 border border-emerald-500/30 text-xs font-mono font-semibold px-2.5 py-2 rounded-lg flex items-center space-x-1.5 transition active:scale-95 shadow-sm" title="Remote AGY YOLO Terminal">
         <span>&gt;_</span>
         <span class="hidden sm:inline font-sans">AGY</span>
       </button>
@@ -91,6 +91,18 @@
       <button onclick="openAddModal()" class="bg-brand-600 hover:bg-brand-500 text-white text-xs font-semibold px-3 py-2 rounded-lg flex items-center space-x-1.5 transition active:scale-95 shadow">
         <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 4v16m8-8H4"/></svg>
         <span>Add</span>
+      </button>
+
+      <!-- Current User Badge -->
+      <div id="headerUserBadge" class="hidden sm:flex items-center space-x-1 px-2.5 py-1.5 rounded-lg bg-dark-card border border-dark-border text-xs text-white">
+        <span>👤</span>
+        <span id="headerUserName" class="font-bold text-brand-400">Loading...</span>
+      </div>
+
+      <!-- Logout Button -->
+      <button onclick="logoutUser()" class="bg-dark-card hover:bg-red-500/20 text-dark-muted hover:text-red-400 text-xs font-semibold px-2.5 py-2 rounded-lg flex items-center space-x-1 transition active:scale-95 border border-dark-border" title="Sign Out">
+        <span>🚪</span>
+        <span class="hidden md:inline">Logout</span>
       </button>
     </div>
   </header>
@@ -237,7 +249,7 @@
       </div>
 
       <!-- Scheduler Status & Next Run Pill -->
-      <div class="bg-gradient-to-r from-dark-surface to-dark-card border border-dark-border rounded-xl p-3 flex items-center justify-between text-xs shadow-sm">
+      <div id="dashSchedulerBanner" class="bg-gradient-to-r from-dark-surface to-dark-card border border-dark-border rounded-xl p-3 flex items-center justify-between text-xs shadow-sm">
         <div class="flex items-center space-x-2.5">
           <div class="w-8 h-8 rounded-lg bg-emerald-500/10 text-brand-500 flex items-center justify-center font-bold text-sm">⏰</div>
           <div>

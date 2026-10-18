@@ -15,9 +15,9 @@ import queue
 import time
 
 import openpyxl
-from fastapi import FastAPI, File, HTTPException, Query, Request, Response, UploadFile
+from fastapi import Depends, FastAPI, File, HTTPException, Query, Request, Response, UploadFile
 from fastapi.middleware.cors import CORSMiddleware
-from fastapi.responses import FileResponse, HTMLResponse, StreamingResponse
+from fastapi.responses import FileResponse, HTMLResponse, RedirectResponse, StreamingResponse
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel, Field
 
@@ -49,7 +49,43 @@ app.add_middleware(
 )
 
 
-# --- Request Models ---
+# --- Request Models & Authentication ---
+
+class LoginRequest(BaseModel):
+    username: str = Field(..., min_length=1)
+    password: str = Field(..., min_length=1)
+
+
+def get_current_user_optional(request: Request) -> dict[str, Any] | None:
+    """Extract and validate session token from cookies or Authorization header."""
+    token = request.cookies.get("session_token")
+    if not token:
+        auth_header = request.headers.get("Authorization", "")
+        if auth_header.startswith("Bearer "):
+            token = auth_header[7:].strip()
+    if not token:
+        return None
+    return database.get_session(token)
+
+
+def require_user(request: Request) -> dict[str, Any]:
+    """Ensure request is authenticated with an active session."""
+    user = get_current_user_optional(request)
+    if not user:
+        raise HTTPException(status_code=401, detail="Authentication required. Please sign in.")
+    return user
+
+
+def require_admin(request: Request) -> dict[str, Any]:
+    """Ensure request is authenticated and has admin privileges."""
+    user = require_user(request)
+    if user.get("role") != "admin":
+        raise HTTPException(
+            status_code=403,
+            detail="Access forbidden: Admin access required for this action."
+        )
+    return user
+
 
 class AddDeviceRequest(BaseModel):
     serial: str = Field(..., min_length=2)
@@ -94,10 +130,75 @@ class AgyRunRequest(BaseModel):
     send_telegram: bool = Field(True)
 
 
+# --- Authentication Endpoints ---
+
+@app.post("/api/auth/login")
+def login(payload: LoginRequest, response: Response) -> dict[str, Any]:
+    """Authenticate user credentials and issue 30-day session cookie."""
+    user = database.authenticate_user(payload.username, payload.password)
+    if not user:
+        raise HTTPException(status_code=401, detail="Invalid username or password.")
+    token = database.create_session(user["username"], user["role"])
+    response.set_cookie(
+        key="session_token",
+        value=token,
+        max_age=30 * 86400,
+        httponly=True,
+        samesite="lax",
+        secure=False,
+        path="/",
+    )
+    return {
+        "success": True,
+        "user": {
+            "id": user["id"],
+            "username": user["username"],
+            "role": user["role"],
+        },
+    }
+
+
+@app.post("/api/auth/logout")
+def logout(request: Request, response: Response) -> dict[str, Any]:
+    """Revoke user session token and clear cookie."""
+    token = request.cookies.get("session_token")
+    if token:
+        database.delete_session(token)
+    response.delete_cookie(key="session_token", path="/")
+    return {"success": True}
+
+
+@app.get("/api/auth/me")
+def get_auth_me(request: Request) -> dict[str, Any]:
+    """Return currently active authenticated user profile."""
+    user = get_current_user_optional(request)
+    if not user:
+        return {"authenticated": False, "user": None}
+    return {
+        "authenticated": True,
+        "user": {
+            "username": user["username"],
+            "role": user["role"],
+        },
+    }
+
+
+@app.get("/login", response_class=HTMLResponse)
+def login_page(request: Request) -> Response:
+    """Serve login page if unauthenticated, or redirect to dashboard."""
+    user = get_current_user_optional(request)
+    if user:
+        return RedirectResponse(url="/", status_code=302)
+    login_file = STATIC_DIR / "login.html"
+    if login_file.exists():
+        return HTMLResponse(content=login_file.read_text(encoding="utf-8"))
+    return HTMLResponse("<h1>Login page not found</h1>")
+
+
 # --- API Routes ---
 
 @app.get("/api/stats")
-def get_stats() -> dict[str, Any]:
+def get_stats(user: dict[str, Any] = Depends(require_user)) -> dict[str, Any]:
     """Retrieve high-level dashboard metrics."""
     stats = database.get_dashboard_stats()
     w_status = worker_service.get_status()
@@ -107,7 +208,7 @@ def get_stats() -> dict[str, Any]:
 
 
 @app.get("/api/devices/filter-options")
-def get_device_filter_options() -> dict[str, Any]:
+def get_device_filter_options(user: dict[str, Any] = Depends(require_user)) -> dict[str, Any]:
     """Retrieve distinct models, colors, specs, and groups for device filtering."""
     return database.get_device_filter_options()
 
@@ -124,6 +225,7 @@ def list_devices(
     newly_activated: bool = Query(False, description="Filter newly activated devices in last 24h"),
     page: int = Query(1, ge=1),
     limit: int = Query(50, ge=1, le=500),
+    user: dict[str, Any] = Depends(require_user),
 ) -> dict[str, Any]:
     """List devices with search, group filter, status filter, category filters, and pagination."""
     offset = (page - 1) * limit
@@ -149,14 +251,14 @@ def list_devices(
 
 
 @app.post("/api/devices")
-def add_device(req: AddDeviceRequest) -> dict[str, Any]:
+def add_device(req: AddDeviceRequest, user: dict[str, Any] = Depends(require_user)) -> dict[str, Any]:
     """Add or update a single serial."""
     device = database.upsert_device(req.serial, req.group_name, req.notes)
     return {"success": True, "device": device}
 
 
 @app.post("/api/devices/bulk")
-def bulk_add_devices(req: BulkAddDevicesRequest) -> dict[str, Any]:
+def bulk_add_devices(req: BulkAddDevicesRequest, user: dict[str, Any] = Depends(require_user)) -> dict[str, Any]:
     """Add multiple serials by pasting text."""
     lines = req.serials_text.replace(",", "\n").replace(";", "\n").splitlines()
     serials = [ln.strip() for ln in lines if ln.strip()]
@@ -225,7 +327,7 @@ def detect_serial_column_xlsx(ws: Any) -> tuple[list[dict[str, Any]], int]:
 
 
 @app.post("/api/devices/upload-preview")
-async def preview_upload_file(file: UploadFile = File(...)) -> dict[str, Any]:
+async def preview_upload_file(file: UploadFile = File(...), user: dict[str, Any] = Depends(require_user)) -> dict[str, Any]:
     """Inspect an uploaded Excel or CSV/text file and return columns with samples."""
     contents = await file.read()
     filename = (file.filename or "").lower()
@@ -269,6 +371,7 @@ async def upload_devices_file(
     file: UploadFile = File(...),
     group_name: str = Query("Default"),
     serial_column: str = Query("", description="Selected column index, letter (e.g. 'A', 'C'), or header name"),
+    user: dict[str, Any] = Depends(require_user),
 ) -> dict[str, Any]:
     """Upload a .txt, .csv, or .xlsx file to bulk import serials from a targeted column."""
     contents = await file.read()
@@ -362,7 +465,7 @@ async def upload_devices_file(
 
 
 @app.delete("/api/devices/{serial}")
-def delete_device(serial: str) -> dict[str, Any]:
+def delete_device(serial: str, user: dict[str, Any] = Depends(require_user)) -> dict[str, Any]:
     """Delete a single serial."""
     ok = database.delete_device(serial)
     if not ok:
@@ -371,20 +474,20 @@ def delete_device(serial: str) -> dict[str, Any]:
 
 
 @app.post("/api/devices/bulk-delete")
-def bulk_delete_devices(req: BulkDeleteRequest) -> dict[str, Any]:
+def bulk_delete_devices(req: BulkDeleteRequest, user: dict[str, Any] = Depends(require_user)) -> dict[str, Any]:
     """Delete multiple serials."""
     deleted_cnt = database.delete_multiple_devices(req.serials)
     return {"success": True, "deleted": deleted_cnt}
 
 
 @app.get("/api/groups")
-def list_groups() -> list[dict[str, Any]]:
+def list_groups(user: dict[str, Any] = Depends(require_user)) -> list[dict[str, Any]]:
     """List all device groups with metrics."""
     return database.get_groups()
 
 
 @app.post("/api/groups")
-def create_group(req: GroupCreateRequest) -> dict[str, Any]:
+def create_group(req: GroupCreateRequest, user: dict[str, Any] = Depends(require_user)) -> dict[str, Any]:
     """Create a new device group."""
     ok = database.create_group(req.name, req.description)
     if not ok:
@@ -393,7 +496,7 @@ def create_group(req: GroupCreateRequest) -> dict[str, Any]:
 
 
 @app.delete("/api/groups/{name}")
-def delete_group(name: str) -> dict[str, Any]:
+def delete_group(name: str, user: dict[str, Any] = Depends(require_user)) -> dict[str, Any]:
     """Delete a group (reassigns devices to 'Default')."""
     ok = database.delete_group(name)
     if not ok:
@@ -402,7 +505,7 @@ def delete_group(name: str) -> dict[str, Any]:
 
 
 @app.post("/api/run")
-def trigger_run(req: RunJobRequest) -> dict[str, Any]:
+def trigger_run(req: RunJobRequest, user: dict[str, Any] = Depends(require_user)) -> dict[str, Any]:
     """
     Trigger a verification check run.
     Can run:
@@ -425,7 +528,7 @@ def trigger_run(req: RunJobRequest) -> dict[str, Any]:
 
 
 @app.post("/api/run/errors")
-def trigger_run_errors() -> dict[str, Any]:
+def trigger_run_errors(user: dict[str, Any] = Depends(require_user)) -> dict[str, Any]:
     """Trigger a verification check run targeting only failed / error devices."""
     ok, msg = worker_service.start_run(mode="errors", errors_only=True)
     if not ok:
@@ -434,40 +537,46 @@ def trigger_run_errors() -> dict[str, Any]:
 
 
 @app.post("/api/run/stop")
-def stop_run() -> dict[str, Any]:
+def stop_run(user: dict[str, Any] = Depends(require_user)) -> dict[str, Any]:
     """Request the running worker to stop."""
     ok = worker_service.stop_run()
     return {"success": ok, "message": "Stop signal sent." if ok else "No job currently running."}
 
 
 @app.get("/api/run/status")
-def run_status() -> dict[str, Any]:
+def run_status(user: dict[str, Any] = Depends(require_user)) -> dict[str, Any]:
     """Get live worker execution status."""
     return worker_service.get_status()
 
 
 @app.get("/api/settings")
-def get_settings() -> dict[str, Any]:
-    """Retrieve system configuration settings."""
-    return database.get_all_settings()
+def get_settings(user: dict[str, Any] = Depends(require_user)) -> dict[str, Any]:
+    """Retrieve system configuration settings (Telegram credentials masked for non-admin)."""
+    settings = database.get_all_settings()
+    if user.get("role") != "admin":
+        if "telegram_bot_token" in settings and settings["telegram_bot_token"]:
+            settings["telegram_bot_token"] = "••••••••••••••••"
+        if "telegram_chat_id" in settings and settings["telegram_chat_id"]:
+            settings["telegram_chat_id"] = "••••••••"
+    return settings
 
 
 @app.post("/api/settings")
-def update_settings(req: UpdateSettingsRequest) -> dict[str, Any]:
-    """Update system settings (intervals, telegram tokens, worker threads)."""
+def update_settings(req: UpdateSettingsRequest, admin: dict[str, Any] = Depends(require_admin)) -> dict[str, Any]:
+    """Update system settings (intervals, telegram tokens, worker threads) - Admin Only."""
     database.set_multiple_settings(req.settings)
     return {"success": True, "settings": database.get_all_settings()}
 
 
 @app.post("/api/telegram/test")
-def test_telegram(req: TelegramTestRequest) -> dict[str, Any]:
-    """Test Telegram Bot credentials."""
+def test_telegram(req: TelegramTestRequest, admin: dict[str, Any] = Depends(require_admin)) -> dict[str, Any]:
+    """Test Telegram Bot credentials - Admin Only."""
     ok, msg = notifier.test_telegram_connection(req.token, req.chat_id)
     return {"success": ok, "message": msg}
 
 
 @app.get("/api/reports/history")
-def run_history(limit: int = Query(15, ge=1, le=50)) -> list[dict[str, Any]]:
+def run_history(limit: int = Query(15, ge=1, le=50), user: dict[str, Any] = Depends(require_user)) -> list[dict[str, Any]]:
     """List recent runs with links to download the 2 report sheets."""
     runs = database.get_recent_runs(limit=limit)
     for r in runs:
@@ -479,7 +588,7 @@ def run_history(limit: int = Query(15, ge=1, le=50)) -> list[dict[str, Any]]:
 
 
 @app.get("/api/reports/download/{filename}")
-def download_report(filename: str) -> FileResponse:
+def download_report(filename: str, user: dict[str, Any] = Depends(require_user)) -> FileResponse:
     """Download any generated Excel or CSV report."""
     safe_filename = Path(filename).name
     file_path = REPORTS_DIR / safe_filename
@@ -498,14 +607,14 @@ def download_report(filename: str) -> FileResponse:
 
 
 @app.get("/api/database/info")
-def get_database_info() -> dict[str, Any]:
+def get_database_info(user: dict[str, Any] = Depends(require_user)) -> dict[str, Any]:
     """Retrieve detailed database engine, storage statistics, and device metrics."""
     return database.get_database_info()
 
 
 @app.get("/api/database/download")
-def download_database() -> FileResponse:
-    """Download the raw SQLite database file as a full backup."""
+def download_database(admin: dict[str, Any] = Depends(require_admin)) -> FileResponse:
+    """Download the raw SQLite database file as a full backup - Admin Only."""
     db_path = database.get_db_path()
     if not db_path.exists():
         raise HTTPException(status_code=404, detail="Database file not found.")
@@ -517,8 +626,8 @@ def download_database() -> FileResponse:
 
 
 @app.post("/api/database/import-default")
-def import_default_sheet() -> dict[str, Any]:
-    """Import or reset database from the default 696-serial sheet."""
+def import_default_sheet(admin: dict[str, Any] = Depends(require_admin)) -> dict[str, Any]:
+    """Import or reset database from the default 696-serial sheet - Admin Only."""
     imported = database.import_sheet_to_database("oppo_results_20261017_1718.csv", group_name="Default", clear_test=True)
     return {
         "success": True,
@@ -529,7 +638,7 @@ def import_default_sheet() -> dict[str, Any]:
 
 
 @app.get("/api/database/export-excel")
-def export_database_excel() -> FileResponse:
+def export_database_excel(user: dict[str, Any] = Depends(require_user)) -> FileResponse:
     """Export the entire database of devices as a beautifully styled Excel (.xlsx) spreadsheet."""
     devices = database.get_all_devices_for_export()
     excel_path, _ = reports.generate_full_run_sheet(devices, custom_tag="database_export")
@@ -541,7 +650,7 @@ def export_database_excel() -> FileResponse:
 
 
 @app.get("/api/database/export-csv")
-def export_database_csv() -> FileResponse:
+def export_database_csv(user: dict[str, Any] = Depends(require_user)) -> FileResponse:
     """Export the entire database of devices as a CSV file."""
     devices = database.get_all_devices_for_export()
     _, csv_path = reports.generate_full_run_sheet(devices, custom_tag="database_export")
@@ -552,11 +661,11 @@ def export_database_csv() -> FileResponse:
     )
 
 
-# --- AGY Remote Terminal YOLO Engine Routes ---
+# --- AGY Remote Terminal YOLO Engine Routes (Admin Only) ---
 
 @app.post("/api/terminal/agy/run")
-def run_agy_command(req: AgyRunRequest) -> dict[str, Any]:
-    """Execute an AGY turn in YOLO mode (skip all permissions)."""
+def run_agy_command(req: AgyRunRequest, admin: dict[str, Any] = Depends(require_admin)) -> dict[str, Any]:
+    """Execute an AGY turn in YOLO mode (skip all permissions) - Admin Only."""
     ok, msg = agy_service.agy_runner.run_prompt(
         prompt=req.prompt,
         mode=req.mode,
@@ -568,22 +677,22 @@ def run_agy_command(req: AgyRunRequest) -> dict[str, Any]:
 
 
 @app.get("/api/terminal/agy/status")
-def get_agy_status() -> dict[str, Any]:
-    """Get live execution state and metadata."""
+def get_agy_status(admin: dict[str, Any] = Depends(require_admin)) -> dict[str, Any]:
+    """Get live execution state and metadata - Admin Only."""
     return agy_service.agy_runner.get_status()
 
 
 @app.get("/api/terminal/agy/logs")
-def get_agy_logs(since: int = Query(0, ge=0)) -> dict[str, Any]:
-    """Poll logs since a given index."""
+def get_agy_logs(since: int = Query(0, ge=0), admin: dict[str, Any] = Depends(require_admin)) -> dict[str, Any]:
+    """Poll logs since a given index - Admin Only."""
     logs = agy_service.agy_runner.get_recent_logs(since_index=since)
     status = agy_service.agy_runner.get_status()
     return {"logs": logs, "status": status}
 
 
 @app.get("/api/terminal/agy/stream")
-async def stream_agy_output():
-    """Server-Sent Events (SSE) live stream of terminal output."""
+async def stream_agy_output(request: Request, admin: dict[str, Any] = Depends(require_admin)):
+    """Server-Sent Events (SSE) live stream of terminal output - Admin Only."""
     def event_generator():
         q = agy_service.agy_runner.subscribe()
         try:
@@ -610,8 +719,8 @@ async def stream_agy_output():
 
 
 @app.post("/api/terminal/agy/stop")
-def stop_agy_command() -> dict[str, Any]:
-    """Stop running AGY process."""
+def stop_agy_command(admin: dict[str, Any] = Depends(require_admin)) -> dict[str, Any]:
+    """Stop running AGY process - Admin Only."""
     ok = agy_service.agy_runner.stop()
     return {"success": ok}
 
@@ -619,7 +728,8 @@ def stop_agy_command() -> dict[str, Any]:
 @app.get("/api/launcher/download")
 def download_launcher(
     request: Request,
-    platform: str = Query("windows", description="'windows' for .url or 'linux' for .desktop")
+    platform: str = Query("windows", description="'windows' for .url or 'linux' for .desktop"),
+    user: dict[str, Any] = Depends(require_user),
 ) -> Response:
     """Generate and return a ready-to-use desktop shortcut for 1-tap launching."""
     host = request.headers.get("host") or "localhost:8000"
@@ -661,8 +771,11 @@ def download_launcher(
 # --- Static Files & Root View ---
 
 @app.get("/", response_class=HTMLResponse)
-def index_html() -> HTMLResponse:
-    """Serve mobile PWA homepage."""
+def index_html(request: Request) -> Response:
+    """Serve mobile PWA homepage if authenticated, else redirect to login."""
+    user = get_current_user_optional(request)
+    if not user:
+        return RedirectResponse(url="/login", status_code=302)
     index_file = STATIC_DIR / "index.html"
     if index_file.exists():
         return HTMLResponse(content=index_file.read_text(encoding="utf-8"))

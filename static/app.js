@@ -27,15 +27,19 @@ let state = {
   cameraStream: null,
   isScanning: false,
   scannedQueue: [],
-  deferredInstallPrompt: null
+  deferredInstallPrompt: null,
+  currentUser: null
 };
 
-// --- Initialization ---
-document.addEventListener('DOMContentLoaded', () => {
+// --- Initialization & Authentication ---
+document.addEventListener('DOMContentLoaded', async () => {
   // Register Service Worker for PWA
   if ('serviceWorker' in navigator) {
     navigator.serviceWorker.register('/static/sw.js').catch(() => {});
   }
+
+  // Check auth and apply permissions before fetching data
+  await checkAuthAndInit();
 
   // Setup PWA Home Screen Install prompt listener
   initPwaInstall();
@@ -44,13 +48,71 @@ document.addEventListener('DOMContentLoaded', () => {
   loadGroups();
   loadFilterOptions();
   loadDevices();
-  loadSettings();
+  if (!state.currentUser || state.currentUser.role === 'admin') {
+    loadSettings();
+  }
   loadReportsHistory();
   startStatusPolling();
 });
 
+async function checkAuthAndInit() {
+  try {
+    const res = await fetch('/api/auth/me');
+    if (!res.ok) {
+      window.location.href = '/login';
+      return;
+    }
+    const data = await res.json();
+    if (!data.authenticated || !data.user) {
+      window.location.href = '/login';
+      return;
+    }
+    state.currentUser = data.user;
+    applyUserRolePermissions(data.user);
+  } catch (err) {
+    window.location.href = '/login';
+  }
+}
+
+function applyUserRolePermissions(user) {
+  const badgeName = document.getElementById('headerUserName');
+  if (badgeName) {
+    badgeName.textContent = user.username + (user.role === 'admin' ? ' (Admin)' : '');
+  }
+
+  const btnAgyHeader = document.getElementById('btnAgyHeader');
+  const tabBtnTerminal = document.getElementById('tabBtn_Terminal');
+  const tabBtnSettings = document.getElementById('tabBtn_Settings');
+  const dashSchedulerBanner = document.getElementById('dashSchedulerBanner');
+
+  if (user.role === 'customer') {
+    if (btnAgyHeader) btnAgyHeader.classList.add('hidden');
+    if (tabBtnTerminal) tabBtnTerminal.classList.add('hidden');
+    if (tabBtnSettings) tabBtnSettings.classList.add('hidden');
+    if (dashSchedulerBanner) dashSchedulerBanner.classList.add('hidden');
+  } else {
+    if (btnAgyHeader) btnAgyHeader.classList.remove('hidden');
+    if (tabBtnTerminal) tabBtnTerminal.classList.remove('hidden');
+    if (tabBtnSettings) tabBtnSettings.classList.remove('hidden');
+    if (dashSchedulerBanner) dashSchedulerBanner.classList.remove('hidden');
+  }
+}
+
+async function logoutUser() {
+  try {
+    await fetch('/api/auth/logout', { method: 'POST' });
+  } catch (e) {}
+  window.location.href = '/login';
+}
+
 // --- Tab Switching ---
 function switchTab(tabName) {
+  if (state.currentUser && state.currentUser.role === 'customer') {
+    if (tabName === 'Terminal' || tabName === 'Settings') {
+      showToast('Access Denied: Admin privileges required.', 'error');
+      return;
+    }
+  }
   state.currentTab = tabName;
   const tabs = ['Dashboard', 'Devices', 'Scanner', 'Reports', 'Settings', 'Terminal'];
 

@@ -1,0 +1,177 @@
+<!DOCTYPE html>
+<html lang="en" class="dark">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+  <title>Login - OPPO Sales Activation Monitor</title>
+  <link rel="manifest" href="/static/manifest.json">
+  <meta name="theme-color" content="#161B22">
+  <link rel="icon" type="image/svg+xml" href="/static/icon.svg">
+  
+  <!-- Tailwind CSS -->
+  <script src="https://cdn.tailwindcss.com"></script>
+  <script>
+    tailwind.config = {
+      darkMode: 'class',
+      theme: {
+        extend: {
+          colors: {
+            brand: {
+              50: '#ECFDF5',
+              500: '#10B981',
+              600: '#059669',
+              700: '#047857',
+            },
+            dark: {
+              main: '#0D1117',
+              surface: '#161B22',
+              card: '#21262D',
+              border: '#30363D',
+              text: '#C9D1D9',
+              muted: '#8B949E'
+            }
+          }
+        }
+      }
+    }
+  </script>
+  <style>
+    body {
+      background-color: #0D1117;
+      color: #C9D1D9;
+      font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+    }
+  </style>
+</head>
+<body class="min-h-screen flex items-center justify-center p-4 bg-dark-main">
+  <div class="w-full max-w-sm">
+    <!-- Brand / Logo Header -->
+    <div class="text-center mb-6">
+      <div class="inline-flex items-center justify-center w-14 h-14 rounded-2xl bg-brand-600/20 text-brand-500 border border-brand-500/30 text-2xl mb-3 shadow-lg shadow-brand-500/10">
+        📱
+      </div>
+      <h1 class="text-xl font-black text-white tracking-tight">OPPO Sales Monitor</h1>
+      <p class="text-xs text-dark-muted mt-1">Sign in with your assigned credentials</p>
+    </div>
+
+    <!-- Login Card -->
+    <div class="bg-dark-surface border border-dark-border rounded-2xl p-6 shadow-2xl space-y-4">
+      <form id="loginForm" onsubmit="handleLogin(event)" class="space-y-4">
+        <!-- Error Alert (hidden by default) -->
+        <div id="loginAlert" class="hidden p-3 rounded-xl bg-red-500/15 border border-red-500/40 text-red-400 text-xs flex items-center space-x-2">
+          <span>⚠️</span>
+          <span id="loginAlertText">Invalid username or password.</span>
+        </div>
+
+        <!-- Username Input -->
+        <div>
+          <label for="usernameInput" class="block text-xs font-semibold text-white mb-1.5">Username</label>
+          <div class="relative">
+            <span class="absolute inset-y-0 left-0 pl-3 flex items-center pointer-events-none text-dark-muted text-xs">👤</span>
+            <input 
+              type="text" 
+              id="usernameInput" 
+              required 
+              autocomplete="username"
+              placeholder="e.g. eslam or customer"
+              class="w-full bg-dark-main border border-dark-border rounded-xl pl-9 pr-3 py-2.5 text-xs text-white placeholder-dark-muted focus:border-brand-500 focus:outline-none transition">
+          </div>
+        </div>
+
+        <!-- Password Input -->
+        <div>
+          <label for="passwordInput" class="block text-xs font-semibold text-white mb-1.5">Password</label>
+          <div class="relative">
+            <span class="absolute inset-y-0 left-0 pl-3 flex items-center pointer-events-none text-dark-muted text-xs">🔒</span>
+            <input 
+              type="password" 
+              id="passwordInput" 
+              required 
+              autocomplete="current-password"
+              placeholder="Enter your password"
+              class="w-full bg-dark-main border border-dark-border rounded-xl pl-9 pr-10 py-2.5 text-xs text-white placeholder-dark-muted focus:border-brand-500 focus:outline-none transition">
+            <button 
+              type="button" 
+              onclick="togglePasswordVisibility()" 
+              class="absolute inset-y-0 right-0 pr-3 flex items-center text-dark-muted hover:text-white text-xs" 
+              title="Show/Hide Password">
+              <span id="pwEyeIcon">👁️</span>
+            </button>
+          </div>
+        </div>
+
+        <!-- Submit Button -->
+        <button 
+          type="submit" 
+          id="btnSubmit" 
+          class="w-full bg-gradient-to-r from-brand-600 to-brand-500 hover:from-brand-500 hover:to-brand-600 text-white font-bold py-2.5 rounded-xl shadow-lg shadow-brand-500/20 active:scale-95 transition flex items-center justify-center space-x-2 text-xs">
+          <span id="btnSubmitText">Sign In</span>
+          <span id="btnSubmitSpinner" class="hidden animate-spin">⏳</span>
+        </button>
+      </form>
+
+      <div class="pt-2 border-t border-dark-border/50 text-center">
+        <span class="text-[11px] text-dark-muted">Protected Access • Role-Based Control</span>
+      </div>
+    </div>
+  </div>
+
+  <script>
+    function togglePasswordVisibility() {
+      const pw = document.getElementById('passwordInput');
+      const icon = document.getElementById('pwEyeIcon');
+      if (pw.type === 'password') {
+        pw.type = 'text';
+        icon.textContent = '🙈';
+      } else {
+        pw.type = 'password';
+        icon.textContent = '👁️';
+      }
+    }
+
+    async function handleLogin(e) {
+      e.preventDefault();
+      const alertBox = document.getElementById('loginAlert');
+      const alertText = document.getElementById('loginAlertText');
+      const btnText = document.getElementById('btnSubmitText');
+      const spinner = document.getElementById('btnSubmitSpinner');
+      const btn = document.getElementById('btnSubmit');
+
+      alertBox.classList.add('hidden');
+      btn.disabled = true;
+      btnText.textContent = 'Signing in...';
+      spinner.classList.remove('hidden');
+
+      const username = document.getElementById('usernameInput').value.trim();
+      const password = document.getElementById('passwordInput').value;
+
+      try {
+        const res = await fetch('/api/auth/login', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ username, password })
+        });
+
+        const data = await res.json();
+
+        if (res.ok && data.success) {
+          btnText.textContent = 'Success! Redirecting...';
+          window.location.href = '/';
+        } else {
+          alertText.textContent = data.detail || 'Invalid username or password.';
+          alertBox.classList.remove('hidden');
+          btn.disabled = false;
+          btnText.textContent = 'Sign In';
+          spinner.classList.add('hidden');
+        }
+      } catch (err) {
+        alertText.textContent = 'Network or connection error. Please try again.';
+        alertBox.classList.remove('hidden');
+        btn.disabled = false;
+        btnText.textContent = 'Sign In';
+        spinner.classList.add('hidden');
+      }
+    }
+  </script>
+</body>
+</html>
