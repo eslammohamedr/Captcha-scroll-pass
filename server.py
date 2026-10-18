@@ -661,6 +661,115 @@ def export_database_csv(user: dict[str, Any] = Depends(require_user)) -> FileRes
     )
 
 
+@app.get("/api/devices/export-excel")
+def export_devices_excel(
+    search: str = Query("", description="Search term"),
+    group: str = Query("", description="Filter by group name"),
+    status: str = Query("", description="Filter by status (Active, Inactive, Pending, Error, Not Run)"),
+    model: str = Query("", description="Filter by model name"),
+    color: str = Query("", description="Filter by color"),
+    specs: str = Query("", description="Filter by specs"),
+    activation_date: str = Query("", description="Filter by activation date"),
+    newly_activated: bool = Query(False, description="Filter newly activated devices"),
+    category_name: str = Query("", description="Optional custom category tag for filename"),
+    user: dict[str, Any] = Depends(require_user),
+) -> FileResponse:
+    """Export devices matching category filters as a beautifully styled Excel (.xlsx) spreadsheet."""
+    devices = database.get_filtered_devices_for_export(
+        search=search,
+        group_name=group,
+        status_filter=status,
+        model=model,
+        color=color,
+        specs=specs,
+        activation_date=activation_date,
+        newly_activated_only=newly_activated,
+    )
+    tag = category_name.strip()
+    if not tag:
+        parts = []
+        if model and model.lower() != "all":
+            parts.append(model)
+        if group and group.lower() != "all":
+            parts.append(f"group_{group}")
+        if status and status.lower() != "all":
+            parts.append(f"status_{status}")
+        if color and color.lower() != "all":
+            parts.append(f"color_{color}")
+        if specs and specs.lower() != "all":
+            parts.append(f"specs_{specs}")
+        if newly_activated:
+            parts.append("newly_activated")
+        if search:
+            parts.append(f"search_{search[:15]}")
+        tag = "_".join(parts) if parts else "all_devices"
+
+    excel_path, _ = reports.generate_filtered_devices_sheet(devices, custom_tag=tag, sheet_title=tag[:30])
+    return FileResponse(
+        path=str(excel_path),
+        filename=excel_path.name,
+        media_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+    )
+
+
+@app.get("/api/devices/export-categorized-excel")
+def export_categorized_excel(
+    by: str = Query("model", description="Category field to group by: 'model', 'group', 'status', 'specs', 'color'"),
+    group: str = Query("", description="Optional group scope"),
+    user: dict[str, Any] = Depends(require_user),
+) -> FileResponse:
+    """Export a multi-sheet Excel workbook with a Summary sheet and separate tabs for each category."""
+    categorized = database.get_devices_categorized(category_field=by, group_name=group)
+    label_map = {
+        "model": "Model",
+        "group": "Group",
+        "status": "Status",
+        "specs": "Specs",
+        "color": "Color",
+    }
+    cat_label = label_map.get(by.lower(), by.title())
+    excel_path, _ = reports.generate_categorized_workbook(categorized, category_label=cat_label)
+    return FileResponse(
+        path=str(excel_path),
+        filename=excel_path.name,
+        media_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+    )
+
+
+@app.get("/api/devices/export-csv")
+def export_devices_csv(
+    search: str = Query(""),
+    group: str = Query(""),
+    status: str = Query(""),
+    model: str = Query(""),
+    color: str = Query(""),
+    specs: str = Query(""),
+    activation_date: str = Query(""),
+    newly_activated: bool = Query(False),
+    category_name: str = Query(""),
+    user: dict[str, Any] = Depends(require_user),
+) -> FileResponse:
+    """Export devices matching category filters as a CSV spreadsheet."""
+    devices = database.get_filtered_devices_for_export(
+        search=search,
+        group_name=group,
+        status_filter=status,
+        model=model,
+        color=color,
+        specs=specs,
+        activation_date=activation_date,
+        newly_activated_only=newly_activated,
+    )
+    tag = category_name.strip() or (model if model and model.lower() != "all" else "filtered_devices")
+    _, csv_path = reports.generate_filtered_devices_sheet(devices, custom_tag=tag)
+    return FileResponse(
+        path=str(csv_path),
+        filename=csv_path.name,
+        media_type="text/csv",
+    )
+
+
+
 # --- AGY Remote Terminal YOLO Engine Routes (Admin Only) ---
 
 @app.post("/api/terminal/agy/run")
@@ -698,24 +807,32 @@ async def stream_agy_output(request: Request, admin: dict[str, Any] = Depends(re
         try:
             initial_logs = agy_service.agy_runner.get_recent_logs()
             for log in initial_logs[-50:]:
-                yield f"data: {json.dumps(log)}\n\n"
+                yield f"event: line\ndata: {json.dumps(log)}\n\n"
 
             while True:
                 try:
-                    log = q.get(timeout=1.5)
-                    yield f"data: {json.dumps(log)}\n\n"
+                    log = q.get(timeout=1.0)
+                    yield f"event: line\ndata: {json.dumps(log)}\n\n"
                 except queue.Empty:
                     status = agy_service.agy_runner.get_status()
-                    yield f": heartbeat {status['is_running']}\n\n"
+                    yield f"event: status\ndata: {json.dumps(status)}\n\n"
                     if not status["is_running"] and q.empty():
-                        time.sleep(1.0)
+                        time.sleep(0.5)
                         if not agy_service.agy_runner.is_running and q.empty():
                             yield f"event: done\ndata: {json.dumps(status)}\n\n"
                             break
         finally:
             agy_service.agy_runner.unsubscribe(q)
 
-    return StreamingResponse(event_generator(), media_type="text/event-stream")
+    return StreamingResponse(
+        event_generator(),
+        media_type="text/event-stream",
+        headers={
+            "Cache-Control": "no-cache, no-transform",
+            "X-Accel-Buffering": "no",
+            "Connection": "keep-alive",
+        },
+    )
 
 
 @app.post("/api/terminal/agy/stop")

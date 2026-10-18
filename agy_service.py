@@ -133,17 +133,20 @@ class AgyRunner:
 
     def _worker_loop(self, prompt: str, mode: str, send_telegram: bool) -> None:
         """Subprocess execution loop capturing stdout and stderr."""
+        agy_executable = AGY_BIN if Path(AGY_BIN).exists() else "agy"
         cmd = [
-            AGY_BIN if Path(AGY_BIN).exists() else "agy",
+            agy_executable,
             "--dangerously-skip-permissions",
-            "--mode",
-            mode,
-            "-p",
-            prompt,
         ]
+        if mode and mode != "auto":
+            cmd.extend(["--mode", mode])
+        cmd.extend(["-p", prompt])
 
         env = os.environ.copy()
+        env["PATH"] = f"/home/dell/.local/bin:/usr/local/bin:{env.get('PATH', '')}"
         env["PYTHONUNBUFFERED"] = "1"
+        env["HOME"] = "/home/dell"
+        env["USER"] = "dell"
 
         start_time = time.time()
         final_response_lines: list[str] = []
@@ -191,7 +194,7 @@ class AgyRunner:
         # Telegram notification if enabled
         if send_telegram:
             try:
-                token, chat_id, enabled, _ = notifier.get_telegram_config()
+                token, chat_id, enabled, send_sheets, notify_runs = notifier.get_telegram_config()
                 if enabled and token and chat_id:
                     tail = "\n".join(final_response_lines[-10:]) if final_response_lines else "No output."
                     if len(tail) > 1000:

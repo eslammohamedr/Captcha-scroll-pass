@@ -9,6 +9,7 @@ from __future__ import annotations
 
 import csv
 import datetime
+import re
 from pathlib import Path
 from typing import Any
 
@@ -218,3 +219,242 @@ def generate_newly_activated_sheet(
             writer.writerow(["No newly activated devices detected in this run"] + ["—"] * 9)
 
     return excel_path, csv_path
+
+
+def generate_filtered_devices_sheet(
+    devices: list[dict[str, Any]],
+    custom_tag: str = "filtered",
+    sheet_title: str = "Filtered Devices",
+) -> tuple[Path, Path]:
+    """
+    Generate an Excel sheet for filtered devices / selected category.
+    Returns (excel_path, csv_path).
+    """
+    timestamp = datetime.datetime.now().strftime("%Y%m%d_%H%M%S")
+    safe_tag = re.sub(r"[^\w\-]", "_", custom_tag.strip()) or "filtered"
+    filename_base = f"oppo_devices_{safe_tag}_{timestamp}"
+
+    excel_path = REPORTS_DIR / f"{filename_base}.xlsx"
+    csv_path = REPORTS_DIR / f"{filename_base}.csv"
+
+    columns = [
+        ("serial", "Serial / IMEI"),
+        ("is_active", "Active?"),
+        ("activation_date", "Activation Date"),
+        ("activation_comment", "Activation Comment"),
+        ("model_name", "Model Name"),
+        ("specs", "RAM / Storage"),
+        ("color", "Color"),
+        ("certified_model", "Certified Model"),
+        ("region", "Region"),
+        ("group_name", "Group"),
+        ("warranty_end", "Warranty End"),
+        ("status", "Check Status"),
+        ("last_checked_at", "Last Checked"),
+        ("activated_at", "Activated At"),
+    ]
+
+    wb = openpyxl.Workbook()
+    ws = wb.active
+    clean_title = re.sub(r"[\:\\/\?\*\[\]]", "_", sheet_title)[:31].strip() or "Filtered Devices"
+    ws.title = clean_title
+
+    ws.append([col_title for _, col_title in columns])
+
+    if devices:
+        for dev in devices:
+            ws.append([dev.get(col_key, "") for col_key, _ in columns])
+    else:
+        ws.append(["No devices matched the selected category/filter"] + ["—"] * 13)
+
+    _apply_sheet_styling(ws, is_newly_activated_sheet=False)
+    wb.save(excel_path)
+
+    with open(csv_path, "w", newline="", encoding="utf-8-sig") as f:
+        writer = csv.writer(f)
+        writer.writerow([col_title for _, col_title in columns])
+        if devices:
+            for dev in devices:
+                writer.writerow([dev.get(col_key, "") for col_key, _ in columns])
+        else:
+            writer.writerow(["No devices matched the selected category/filter"] + ["—"] * 13)
+
+    return excel_path, csv_path
+
+
+def generate_categorized_workbook(
+    categorized_devices: dict[str, list[dict[str, Any]]],
+    category_label: str = "Model",
+) -> tuple[Path, Path]:
+    """
+    Generate a multi-sheet Excel workbook with a Summary sheet and separate tabs for each category.
+    Returns (excel_path, csv_path).
+    """
+    timestamp = datetime.datetime.now().strftime("%Y%m%d_%H%M%S")
+    safe_label = re.sub(r"[^\w\-]", "_", category_label.strip()) or "category"
+    filename_base = f"oppo_categorized_by_{safe_label.lower()}_{timestamp}"
+
+    excel_path = REPORTS_DIR / f"{filename_base}.xlsx"
+    csv_path = REPORTS_DIR / f"{filename_base}.csv"
+
+    columns = [
+        ("serial", "Serial / IMEI"),
+        ("is_active", "Active?"),
+        ("activation_date", "Activation Date"),
+        ("activation_comment", "Activation Comment"),
+        ("model_name", "Model Name"),
+        ("specs", "RAM / Storage"),
+        ("color", "Color"),
+        ("certified_model", "Certified Model"),
+        ("region", "Region"),
+        ("group_name", "Group"),
+        ("warranty_end", "Warranty End"),
+        ("status", "Check Status"),
+        ("last_checked_at", "Last Checked"),
+        ("activated_at", "Activated At"),
+    ]
+
+    wb = openpyxl.Workbook()
+    # 1. Summary Sheet
+    ws_summary = wb.active
+    ws_summary.title = "Summary & Overview"
+
+    summary_headers = [
+        f"Category ({category_label})",
+        "Total Devices",
+        "Active",
+        "Inactive",
+        "Pending Sync",
+        "Not Run",
+        "Errors / Other",
+        "Active Rate",
+    ]
+    ws_summary.append(summary_headers)
+
+    summary_rows = []
+    tot_total = 0
+    tot_active = 0
+    tot_inactive = 0
+    tot_pending = 0
+    tot_not_run = 0
+    tot_errors = 0
+
+    for cat_name, devs in categorized_devices.items():
+        total = len(devs)
+        active = sum(1 for d in devs if str(d.get("is_active")).strip() == "Yes")
+        inactive = sum(1 for d in devs if str(d.get("is_active")).strip() == "No")
+        pending = sum(
+            1 for d in devs if str(d.get("is_active")).strip() in ["Pending", "Pending Sync"]
+            or (str(d.get("status")).strip() == "Pending" and str(d.get("is_active")).strip() != "Not Run")
+        )
+        not_run = sum(
+            1 for d in devs if str(d.get("is_active")).strip() == "Not Run"
+            or str(d.get("status")).strip() == "Not Run"
+            or (not d.get("last_checked_at") and str(d.get("is_active")).strip() not in ["Yes", "No", "Pending"])
+        )
+        errors = sum(
+            1 for d in devs if str(d.get("is_active")).strip() in ["Error", "Unknown"]
+            or str(d.get("status")).strip() in ["Error", "Captcha Failed", "No Response"]
+        )
+        rate_str = f"{(active / total * 100):.1f}%" if total > 0 else "0.0%"
+
+        tot_total += total
+        tot_active += active
+        tot_inactive += inactive
+        tot_pending += pending
+        tot_not_run += not_run
+        tot_errors += errors
+
+        row = [cat_name, total, active, inactive, pending, not_run, errors, rate_str]
+        summary_rows.append(row)
+        ws_summary.append(row)
+
+    # Append overall total row
+    tot_rate_str = f"{(tot_active / tot_total * 100):.1f}%" if tot_total > 0 else "0.0%"
+    total_row = ["TOTAL / ALL CATEGORIES", tot_total, tot_active, tot_inactive, tot_pending, tot_not_run, tot_errors, tot_rate_str]
+    ws_summary.append(total_row)
+
+    # Style Summary Sheet
+    header_fill = PatternFill(start_color="0F3C28", end_color="0F3C28", fill_type="solid")
+    header_font = Font(name="Segoe UI", size=11, bold=True, color="FFFFFF")
+    total_fill = PatternFill(start_color="E6FFEC", end_color="E6FFEC", fill_type="solid")
+    total_font = Font(name="Segoe UI", size=11, bold=True, color="0F3C28")
+    thin_border = Border(
+        left=Side(style="thin", color="E1E4E8"),
+        right=Side(style="thin", color="E1E4E8"),
+        top=Side(style="thin", color="E1E4E8"),
+        bottom=Side(style="thin", color="E1E4E8"),
+    )
+    double_bottom_border = Border(
+        left=Side(style="thin", color="E1E4E8"),
+        right=Side(style="thin", color="E1E4E8"),
+        top=Side(style="thin", color="E1E4E8"),
+        bottom=Side(style="double", color="1F2428"),
+    )
+
+    for col_idx in range(1, len(summary_headers) + 1):
+        c = ws_summary.cell(row=1, column=col_idx)
+        c.fill = header_fill
+        c.font = header_font
+        c.alignment = Alignment(horizontal="center", vertical="center")
+        c.border = thin_border
+    ws_summary.row_dimensions[1].height = 28
+
+    for row_idx in range(2, ws_summary.max_row):
+        ws_summary.row_dimensions[row_idx].height = 20
+        for col_idx in range(1, len(summary_headers) + 1):
+            c = ws_summary.cell(row=row_idx, column=col_idx)
+            c.border = thin_border
+            c.font = Font(name="Segoe UI", size=10)
+            if col_idx == 1:
+                c.alignment = Alignment(horizontal="left", vertical="center")
+            else:
+                c.alignment = Alignment(horizontal="center", vertical="center")
+
+    # Format total row
+    last_row_idx = ws_summary.max_row
+    ws_summary.row_dimensions[last_row_idx].height = 24
+    for col_idx in range(1, len(summary_headers) + 1):
+        c = ws_summary.cell(row=last_row_idx, column=col_idx)
+        c.fill = total_fill
+        c.font = total_font
+        c.border = double_bottom_border
+        if col_idx == 1:
+            c.alignment = Alignment(horizontal="left", vertical="center")
+        else:
+            c.alignment = Alignment(horizontal="center", vertical="center")
+
+    for col in ws_summary.columns:
+        col_letter = get_column_letter(col[0].column)
+        max_len = max(len(str(cell.value or "")) for cell in col)
+        ws_summary.column_dimensions[col_letter].width = max(max_len + 4, 14)
+
+    # 2. Individual Category Sheets
+    used_titles: list[str] = ["Summary & Overview"]
+    for cat_name, devs in categorized_devices.items():
+        base_title = re.sub(r"[\:\\/\?\*\[\]]", "_", cat_name).strip()[:28] or "Category"
+        sheet_title = base_title
+        counter = 1
+        while sheet_title.lower() in [t.lower() for t in used_titles]:
+            counter += 1
+            sheet_title = f"{base_title[:25]}_{counter}"[:31]
+        used_titles.append(sheet_title)
+
+        ws_cat = wb.create_sheet(title=sheet_title)
+        ws_cat.append([col_title for _, col_title in columns])
+        for dev in devs:
+            ws_cat.append([dev.get(col_key, "") for col_key, _ in columns])
+        _apply_sheet_styling(ws_cat, is_newly_activated_sheet=False)
+
+    wb.save(excel_path)
+
+    # Companion summary CSV
+    with open(csv_path, "w", newline="", encoding="utf-8-sig") as f:
+        writer = csv.writer(f)
+        writer.writerow(summary_headers)
+        for r in summary_rows:
+            writer.writerow(r)
+        writer.writerow(total_row)
+
+    return excel_path, csv_path
+

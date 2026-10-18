@@ -1664,6 +1664,8 @@ async function testTelegramConnection() {
 let agyEventSource = null;
 let agyTerminalLineCount = 0;
 let agyIsRunning = false;
+let agyLastLogIndex = 0;
+let agyPollingTimer = null;
 
 function setAgyPrompt(promptText) {
   const input = document.getElementById('agyPromptInput');
@@ -1678,21 +1680,28 @@ async function loadAgyStatus() {
     const res = await fetch('/api/terminal/agy/status');
     if (!res.ok) return;
     const data = await res.json();
-    updateAgyUiStatus(data.is_running, data.last_prompt);
+    updateAgyUiStatus(data.is_running, data.current_prompt);
 
-    // If terminal is empty or uninitialized, load existing buffered logs
-    const consoleEl = document.getElementById('agyTerminalConsole');
-    if (consoleEl && consoleEl.dataset.initialized !== 'true') {
-      const logsRes = await fetch('/api/terminal/agy/logs');
-      if (logsRes.ok) {
-        const logsData = await logsRes.json();
-        if (logsData.lines && logsData.lines.length > 0) {
+    // Fetch existing buffered logs from backend
+    const logsRes = await fetch('/api/terminal/agy/logs?since=0');
+    if (logsRes.ok) {
+      const logsData = await logsRes.json();
+      const logs = logsData.logs || [];
+      if (logs.length > 0) {
+        const consoleEl = document.getElementById('agyTerminalConsole');
+        if (consoleEl && consoleEl.dataset.initialized !== 'true') {
           consoleEl.innerHTML = '';
           agyTerminalLineCount = 0;
-          logsData.lines.forEach(line => appendTerminalLine(line));
+          agyLastLogIndex = 0;
+          logs.forEach(item => appendTerminalLine(item));
+          consoleEl.dataset.initialized = 'true';
         }
       }
-      consoleEl.dataset.initialized = 'true';
+    }
+
+    if (data.is_running) {
+      startAgyEventStream();
+      startAgyPolling();
     }
   } catch (e) {}
 }
@@ -1718,41 +1727,100 @@ function updateAgyUiStatus(isRunning, prompt = '') {
 }
 
 function startAgyEventStream() {
-  if (agyEventSource) return;
+  if (agyEventSource) {
+    try { agyEventSource.close(); } catch (e) {}
+    agyEventSource = null;
+  }
 
-  agyEventSource = new EventSource('/api/terminal/agy/stream');
+  try {
+    agyEventSource = new EventSource('/api/terminal/agy/stream');
 
-  agyEventSource.addEventListener('line', (e) => {
-    try {
-      const data = JSON.parse(e.data);
-      appendTerminalLine(data.text);
-    } catch (err) {
-      appendTerminalLine(e.data);
-    }
-  });
+    const handleMessage = (e) => {
+      try {
+        const data = JSON.parse(e.data);
+        appendTerminalLine(data);
+      } catch (err) {
+        appendTerminalLine(e.data);
+      }
+    };
 
-  agyEventSource.addEventListener('status', (e) => {
-    try {
-      const data = JSON.parse(e.data);
-      updateAgyUiStatus(data.is_running, data.last_prompt);
-      if (data.status === 'completed') {
+    agyEventSource.onmessage = handleMessage;
+    agyEventSource.addEventListener('line', handleMessage);
+
+    agyEventSource.addEventListener('status', (e) => {
+      try {
+        const data = JSON.parse(e.data);
+        updateAgyUiStatus(data.is_running, data.current_prompt);
+      } catch (err) {}
+    });
+
+    agyEventSource.addEventListener('done', (e) => {
+      try {
+        const data = JSON.parse(e.data);
+        updateAgyUiStatus(false);
+        stopAgyPolling();
         appendTerminalLine(`\n[Process completed with exit code ${data.exit_code}]\n`);
         showToast('AGY execution finished!', 'success');
-      } else if (data.status === 'stopped') {
-        appendTerminalLine(`\n[Process terminated by user]\n`);
-        showToast('AGY execution stopped', 'warning');
-      }
-    } catch (err) {}
-  });
+      } catch (err) {}
+    });
 
-  agyEventSource.onerror = () => {
-    // EventSource will auto-reconnect
-  };
+    agyEventSource.onerror = () => {
+      // EventSource may reconnect, keep polling active
+    };
+  } catch (err) {
+    // Fall back to active polling
+  }
 }
 
-function appendTerminalLine(text) {
+function startAgyPolling() {
+  if (agyPollingTimer) return;
+  agyPollingTimer = setInterval(async () => {
+    try {
+      const res = await fetch(`/api/terminal/agy/logs?since=${agyLastLogIndex}`);
+      if (res.ok) {
+        const data = await res.json();
+        const logs = data.logs || [];
+        logs.forEach(log => appendTerminalLine(log));
+
+        if (data.status) {
+          updateAgyUiStatus(data.status.is_running, data.status.current_prompt);
+          if (!data.status.is_running) {
+            stopAgyPolling();
+          }
+        }
+      }
+    } catch (e) {}
+  }, 1200);
+}
+
+function stopAgyPolling() {
+  if (agyPollingTimer) {
+    clearInterval(agyPollingTimer);
+    agyPollingTimer = null;
+  }
+}
+
+function appendTerminalLine(item) {
   const consoleEl = document.getElementById('agyTerminalConsole');
   if (!consoleEl) return;
+
+  let text = '';
+  let stream = 'stdout';
+  let logTime = '';
+
+  if (typeof item === 'string') {
+    text = item;
+  } else if (item && typeof item === 'object') {
+    if (item.index !== undefined) {
+      if (item.index < agyLastLogIndex) return; // already rendered
+      agyLastLogIndex = item.index + 1;
+    }
+    text = item.text || '';
+    stream = item.stream || 'stdout';
+    logTime = item.time ? `[${item.time}] ` : '';
+  }
+
+  if (!text && !logTime) return;
 
   // Clear placeholder text on first real output
   if (consoleEl.innerText.includes('Ready to execute')) {
@@ -1760,20 +1828,24 @@ function appendTerminalLine(text) {
   }
 
   const lineEl = document.createElement('div');
-  lineEl.className = 'break-all font-mono whitespace-pre-wrap';
+  lineEl.className = 'break-all font-mono whitespace-pre-wrap leading-relaxed py-0.5';
 
-  // Format line styling based on content
-  if (text.startsWith('>') || text.startsWith('$')) {
-    lineEl.className += ' text-brand-400 font-bold';
-  } else if (text.toLowerCase().includes('error') || text.toLowerCase().includes('failed:')) {
+  // Format line styling based on stream / content
+  if (stream === 'system') {
+    lineEl.className += ' text-sky-400 font-semibold';
+  } else if (stream === 'error' || text.toLowerCase().includes('error:') || text.toLowerCase().includes('failed:')) {
     lineEl.className += ' text-red-400';
+  } else if (text.startsWith('>') || text.startsWith('$')) {
+    lineEl.className += ' text-brand-400 font-bold';
   } else if (text.toLowerCase().includes('success') || text.toLowerCase().includes('completed')) {
     lineEl.className += ' text-emerald-300';
   } else if (text.toLowerCase().includes('warning:')) {
     lineEl.className += ' text-amber-400';
+  } else {
+    lineEl.className += ' text-gray-200';
   }
 
-  lineEl.textContent = text;
+  lineEl.textContent = logTime + text;
   consoleEl.appendChild(lineEl);
 
   agyTerminalLineCount++;
@@ -1797,9 +1869,10 @@ async function runAgyCommand() {
   const modeSelect = document.getElementById('agyModeSelect');
   const mode = modeSelect ? modeSelect.value : 'auto';
 
-  appendTerminalLine(`\n> agy --dangerously-skip-permissions --mode ${mode} -p "${prompt}"`);
+  appendTerminalLine({ stream: 'system', text: `🚀 Launching: "${prompt}" (mode: ${mode})` });
   updateAgyUiStatus(true, prompt);
   startAgyEventStream();
+  startAgyPolling();
 
   try {
     const res = await fetch('/api/terminal/agy/run', {
@@ -1817,10 +1890,12 @@ async function runAgyCommand() {
     } else {
       showToast(data.detail || 'Failed to start AGY', 'error');
       updateAgyUiStatus(false);
+      stopAgyPolling();
     }
   } catch (e) {
     showToast('Failed to start AGY execution', 'error');
     updateAgyUiStatus(false);
+    stopAgyPolling();
   }
 }
 
@@ -1831,6 +1906,7 @@ async function stopAgyProcess() {
     if (res.ok) {
       showToast(data.message || 'Process stopped', 'info');
       updateAgyUiStatus(false);
+      stopAgyPolling();
     } else {
       showToast(data.detail || 'Could not stop process', 'error');
     }
@@ -1844,6 +1920,7 @@ function clearAgyTerminal() {
   if (consoleEl) {
     consoleEl.innerHTML = '';
     agyTerminalLineCount = 0;
+    agyLastLogIndex = 0;
     const countText = document.getElementById('terminalLineCountText');
     if (countText) countText.innerText = '0 lines';
   }

@@ -673,6 +673,140 @@ def get_all_devices_for_export() -> list[dict[str, Any]]:
         return [dict(r) for r in cur.fetchall()]
 
 
+def get_filtered_devices_for_export(
+    search: str = "",
+    group_name: str = "",
+    status_filter: str = "",
+    model: str = "",
+    color: str = "",
+    specs: str = "",
+    activation_date: str = "",
+    newly_activated_only: bool = False,
+) -> list[dict[str, Any]]:
+    """Retrieve all devices matching category filters without pagination limits for Excel export."""
+    query = "SELECT * FROM devices WHERE 1=1"
+    params: list[Any] = []
+
+    if search.strip():
+        terms = [t.strip() for t in search.strip().split() if t.strip()]
+        for term in terms:
+            term_wildcard = f"%{term}%"
+            term_clause = """ AND (
+                serial LIKE ? OR 
+                model_name LIKE ? OR 
+                color LIKE ? OR 
+                specs LIKE ? OR 
+                certified_model LIKE ? OR 
+                region LIKE ? OR 
+                notes LIKE ? OR
+                activation_date LIKE ?
+            )"""
+            query += term_clause
+            params.extend([term_wildcard] * 8)
+
+    if group_name.strip() and group_name.strip().lower() != "all":
+        query += " AND group_name = ?"
+        params.append(group_name.strip())
+
+    if model.strip() and model.strip().lower() != "all":
+        query += " AND model_name = ?"
+        params.append(model.strip())
+
+    if color.strip() and color.strip().lower() != "all":
+        query += " AND color = ?"
+        params.append(color.strip())
+
+    if specs.strip() and specs.strip().lower() != "all":
+        query += " AND specs = ?"
+        params.append(specs.strip())
+
+    if activation_date.strip() and activation_date.strip().lower() != "all":
+        ad = activation_date.strip()
+        parts = ad.split("-")
+        if len(parts) == 3 and len(parts[0]) == 4:
+            alt_ad = f"{parts[2]}-{parts[1]}-{parts[0]}"
+            query += " AND (activation_date LIKE ? OR activation_date LIKE ?)"
+            params.extend([f"%{ad}%", f"%{alt_ad}%"])
+        else:
+            query += " AND activation_date LIKE ?"
+            params.append(f"%{ad}%")
+
+    if status_filter.strip() and status_filter.strip().lower() != "all":
+        stat = status_filter.strip()
+        if stat == "Active":
+            query += " AND is_active = 'Yes'"
+        elif stat == "Inactive":
+            query += " AND is_active = 'No'"
+        elif stat == "Pending":
+            query += " AND (is_active = 'Pending' OR status = 'Pending') AND is_active != 'Not Run'"
+        elif stat == "Error":
+            query += " AND (is_active IN ('Error', 'Unknown') OR status IN ('Error', 'Captcha Failed', 'No Response')) AND is_active != 'Not Run'"
+        elif stat == "Not Run":
+            query += " AND (is_active = 'Not Run' OR status = 'Not Run' OR last_checked_at = '')"
+
+    if newly_activated_only:
+        today_start = datetime.datetime.now().strftime("%Y-%m-%d 00:00:00")
+        today_end = datetime.datetime.now().strftime("%Y-%m-%d 23:59:59")
+        query += " AND is_active = 'Yes' AND activated_at >= ? AND activated_at <= ?"
+        params.extend([today_start, today_end])
+
+    query += " ORDER BY id ASC;"
+
+    with get_db_cursor() as cur:
+        cur.execute(query, params)
+        return [dict(r) for r in cur.fetchall()]
+
+
+def get_devices_categorized(
+    category_field: str = "model",
+    group_name: str = "",
+) -> dict[str, list[dict[str, Any]]]:
+    """Retrieve devices grouped by category (model, group, status, specs, color)."""
+    field_map = {
+        "model": "model_name",
+        "model_name": "model_name",
+        "group": "group_name",
+        "group_name": "group_name",
+        "status": "is_active",
+        "is_active": "is_active",
+        "color": "color",
+        "specs": "specs",
+    }
+    col = field_map.get(category_field.lower(), "model_name")
+
+    query = "SELECT * FROM devices WHERE 1=1"
+    params: list[Any] = []
+    if group_name and group_name.strip().lower() != "all":
+        query += " AND group_name = ?"
+        params.append(group_name.strip())
+    query += f" ORDER BY {col} ASC, id ASC;"
+
+    with get_db_cursor() as cur:
+        cur.execute(query, params)
+        rows = [dict(r) for r in cur.fetchall()]
+
+    categorized: dict[str, list[dict[str, Any]]] = {}
+    for r in rows:
+        val = str(r.get(col) or "").strip()
+        if not val:
+            val = "Unknown / Unassigned"
+        elif col == "is_active":
+            if val == "Yes":
+                val = "Active Devices"
+            elif val == "No":
+                val = "Inactive Devices"
+            elif val in ["Pending", "Pending Sync"]:
+                val = "Pending Sync"
+            elif val == "Not Run":
+                val = "Not Run"
+            else:
+                val = "Errors & Unknown"
+        categorized.setdefault(val, []).append(r)
+
+    return categorized
+
+
+
 def get_serials_to_check(
     mode: str = "all",
     group_name: str = "",
