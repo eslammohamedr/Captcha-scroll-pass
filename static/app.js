@@ -202,9 +202,13 @@ async function loadDashboardStats() {
     const data = await res.json();
     state.stats = data;
 
+    const activeEl = document.getElementById('metricActive');
+    const inactiveEl = document.getElementById('metricInactive');
+    if (activeEl) activeEl.innerText = data.active || 0;
+    if (inactiveEl) inactiveEl.innerText = data.inactive || 0;
+
     document.getElementById('metricActivatedToday').innerText = data.activated_today || 0;
     document.getElementById('metricTotal').innerText = data.total || 0;
-    document.getElementById('metricPending').innerText = data.pending || 0;
     document.getElementById('metricErrors').innerText = data.errors || 0;
 
     if (data.worker && data.worker.logs) {

@@ -19,6 +19,7 @@ from pydantic import BaseModel, Field
 
 import database
 import notifier
+import reports
 from worker_service import worker_service
 
 BASE_DIR = Path(__file__).resolve().parent
@@ -350,6 +351,30 @@ def import_default_sheet() -> dict[str, Any]:
         "message": f"Successfully loaded {imported} serials from default sheet into database.",
         "info": database.get_database_info(),
     }
+
+
+@app.get("/api/database/export-excel")
+def export_database_excel() -> FileResponse:
+    """Export the entire database of devices as a beautifully styled Excel (.xlsx) spreadsheet."""
+    devices = database.get_all_devices_for_export()
+    excel_path, _ = reports.generate_full_run_sheet(devices, custom_tag="database_export")
+    return FileResponse(
+        path=str(excel_path),
+        filename=excel_path.name,
+        media_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+    )
+
+
+@app.get("/api/database/export-csv")
+def export_database_csv() -> FileResponse:
+    """Export the entire database of devices as a CSV file."""
+    devices = database.get_all_devices_for_export()
+    _, csv_path = reports.generate_full_run_sheet(devices, custom_tag="database_export")
+    return FileResponse(
+        path=str(csv_path),
+        filename=csv_path.name,
+        media_type="text/csv",
+    )
 
 
 # --- Static Files & Root View ---

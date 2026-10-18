@@ -102,50 +102,60 @@
     <!-- 1. DASHBOARD VIEW -->
     <div id="viewDashboard" class="space-y-4">
       <!-- High-Level Metric Cards Grid -->
-      <div class="grid grid-cols-2 md:grid-cols-4 gap-3">
-        <!-- Detected Active Today -->
-        <div class="bg-gradient-to-br from-emerald-900/40 to-dark-surface border border-emerald-500/30 rounded-xl p-3.5 flex flex-col justify-between">
-          <div class="flex items-center justify-between">
-            <span class="text-xs font-medium text-emerald-400">Detected Active Today</span>
-            <span class="p-1 rounded-lg bg-emerald-500/10 text-emerald-400">🔥</span>
-          </div>
-          <div class="text-2xl font-black text-white mt-2" id="metricActivatedToday">0</div>
-          <span class="text-[10px] text-dark-muted mt-1">Verified active today</span>
-        </div>
-
+      <div class="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-5 gap-2.5">
         <!-- Total Tracked -->
-        <div class="bg-dark-surface border border-dark-border rounded-xl p-3.5 flex flex-col justify-between">
+        <div class="bg-dark-surface border border-dark-border rounded-xl p-3 flex flex-col justify-between">
           <div class="flex items-center justify-between">
             <span class="text-xs font-medium text-dark-muted">Total Devices</span>
             <span class="p-1 rounded-lg bg-blue-500/10 text-blue-400">📱</span>
           </div>
-          <div class="text-2xl font-black text-white mt-2" id="metricTotal">0</div>
-          <span class="text-[10px] text-dark-muted mt-1">In database</span>
+          <div class="text-2xl font-black text-white mt-1.5" id="metricTotal">0</div>
+          <span class="text-[10px] text-dark-muted">In database</span>
         </div>
 
-        <!-- Pending / Inactive -->
-        <div class="bg-dark-surface border border-dark-border rounded-xl p-3.5 flex flex-col justify-between">
+        <!-- Total Active Devices -->
+        <div class="bg-gradient-to-br from-emerald-950/60 to-dark-surface border border-emerald-500/40 rounded-xl p-3 flex flex-col justify-between shadow-sm">
           <div class="flex items-center justify-between">
-            <span class="text-xs font-medium text-amber-400">Pending Sales</span>
-            <span class="p-1 rounded-lg bg-amber-500/10 text-amber-400">⏳</span>
+            <span class="text-xs font-bold text-emerald-400">Total Active</span>
+            <span class="p-1 rounded-lg bg-emerald-500/20 text-emerald-400 font-bold">✔</span>
           </div>
-          <div class="text-2xl font-black text-white mt-2" id="metricPending">0</div>
-          <span class="text-[10px] text-dark-muted mt-1">Awaiting activation</span>
+          <div class="text-2xl font-black text-emerald-400 mt-1.5" id="metricActive">0</div>
+          <span class="text-[10px] text-emerald-500/80 font-medium">All active phones</span>
+        </div>
+
+        <!-- Total Inactive Devices -->
+        <div class="bg-gradient-to-br from-amber-950/40 to-dark-surface border border-amber-500/30 rounded-xl p-3 flex flex-col justify-between shadow-sm">
+          <div class="flex items-center justify-between">
+            <span class="text-xs font-bold text-amber-400">Total Inactive</span>
+            <span class="p-1 rounded-lg bg-amber-500/10 text-amber-400 font-bold">⏳</span>
+          </div>
+          <div class="text-2xl font-black text-amber-400 mt-1.5" id="metricInactive">0</div>
+          <span class="text-[10px] text-amber-500/80 font-medium">Awaiting activation</span>
+        </div>
+
+        <!-- Detected Active Today -->
+        <div class="bg-dark-surface border border-dark-border rounded-xl p-3 flex flex-col justify-between">
+          <div class="flex items-center justify-between">
+            <span class="text-xs font-medium text-emerald-400">Detected Today</span>
+            <span class="p-1 rounded-lg bg-emerald-500/10 text-emerald-400">🔥</span>
+          </div>
+          <div class="text-2xl font-black text-white mt-1.5" id="metricActivatedToday">0</div>
+          <span class="text-[10px] text-dark-muted">Found active today</span>
         </div>
 
         <!-- Errors -->
-        <div class="bg-dark-surface border border-dark-border rounded-xl p-3.5 flex flex-col justify-between">
+        <div class="col-span-2 md:col-span-1 bg-dark-surface border border-dark-border rounded-xl p-3 flex flex-col justify-between">
           <div class="flex items-center justify-between">
             <span class="text-xs font-medium text-red-400">Errors</span>
             <span class="p-1 rounded-lg bg-red-500/10 text-red-400">⚠️</span>
           </div>
-          <div class="text-2xl font-black text-white mt-2" id="metricErrors">0</div>
-          <span class="text-[10px] text-dark-muted mt-1">Needs retry</span>
+          <div class="text-2xl font-black text-white mt-1.5" id="metricErrors">0</div>
+          <span class="text-[10px] text-dark-muted">Needs retry</span>
         </div>
       </div>
 
       <!-- Current Database Status Banner -->
-      <div class="bg-dark-surface border border-dark-border rounded-xl p-3 flex items-center justify-between text-xs">
+      <div class="bg-dark-surface border border-dark-border rounded-xl p-3 flex flex-col sm:flex-row sm:items-center justify-between gap-2.5 text-xs">
         <div class="flex items-center space-x-2.5">
           <div class="w-8 h-8 rounded-lg bg-blue-500/10 text-blue-400 flex items-center justify-center font-bold text-sm">🗄️</div>
           <div>
@@ -156,9 +166,14 @@
             <div class="text-[11px] text-dark-muted" id="dashDbDetails">696 total devices loaded in Default group</div>
           </div>
         </div>
-        <a href="/api/database/download" download class="bg-dark-card hover:bg-dark-border text-white px-3 py-1.5 rounded-lg border border-dark-border text-[11px] font-semibold active:scale-95 transition flex items-center space-x-1">
-          <span>📥 Backup .db</span>
-        </a>
+        <div class="flex items-center space-x-2 self-end sm:self-auto">
+          <a href="/api/database/export-excel" download class="bg-brand-600 hover:bg-brand-500 text-white px-3 py-1.5 rounded-lg text-[11px] font-bold active:scale-95 transition flex items-center space-x-1 shadow">
+            <span>📊 Download Excel (.xlsx)</span>
+          </a>
+          <a href="/api/database/download" download class="bg-dark-card hover:bg-dark-border text-white px-2.5 py-1.5 rounded-lg border border-dark-border text-[11px] font-semibold active:scale-95 transition flex items-center space-x-1">
+            <span>📥 Backup .db</span>
+          </a>
+        </div>
       </div>
 
       <!-- Scheduler Status & Next Run Pill -->
@@ -445,10 +460,13 @@
         </div>
 
         <div class="flex flex-wrap gap-2 pt-1">
-          <a href="/api/database/download" download class="flex-1 min-w-[140px] bg-dark-card hover:bg-dark-border text-white text-xs font-semibold py-2 px-3 rounded-lg border border-dark-border flex items-center justify-center space-x-1.5 active:scale-95 transition">
-            <span>📥 Download Backup (.db)</span>
+          <a href="/api/database/export-excel" download class="flex-1 min-w-[140px] bg-brand-600 hover:bg-brand-500 text-white text-xs font-bold py-2.5 px-3 rounded-lg flex items-center justify-center space-x-1.5 active:scale-95 transition shadow">
+            <span>📊 Download Excel (.xlsx)</span>
           </a>
-          <button onclick="reloadDefaultSheet()" class="flex-1 min-w-[140px] bg-blue-950/40 hover:bg-blue-900/40 text-blue-400 border border-blue-500/30 text-xs font-semibold py-2 px-3 rounded-lg flex items-center justify-center space-x-1.5 active:scale-95 transition">
+          <a href="/api/database/download" download class="flex-1 min-w-[140px] bg-dark-card hover:bg-dark-border text-white text-xs font-semibold py-2.5 px-3 rounded-lg border border-dark-border flex items-center justify-center space-x-1.5 active:scale-95 transition">
+            <span>📥 Backup (.db)</span>
+          </a>
+          <button onclick="reloadDefaultSheet()" class="w-full bg-blue-950/40 hover:bg-blue-900/40 text-blue-400 border border-blue-500/30 text-xs font-semibold py-2 px-3 rounded-lg flex items-center justify-center space-x-1.5 active:scale-95 transition">
             <span>🔄 Reload 696 Default Sheet</span>
           </button>
         </div>

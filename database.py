@@ -406,6 +406,13 @@ def get_devices(
     return rows, total_cnt
 
 
+def get_all_devices_for_export() -> list[dict[str, Any]]:
+    """Retrieve all devices for Excel/CSV export."""
+    with get_db_cursor() as cur:
+        cur.execute("SELECT * FROM devices ORDER BY id ASC;")
+        return [dict(r) for r in cur.fetchall()]
+
+
 def get_serials_to_check(
     mode: str = "all",
     group_name: str = "",
