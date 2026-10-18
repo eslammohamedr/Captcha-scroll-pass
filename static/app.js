@@ -480,7 +480,10 @@ function renderDevicesCards(devices) {
 
           <div class="flex flex-wrap items-center gap-x-3 gap-y-1 text-[11px] text-dark-muted">
             <span>🏷️ ${escapeHtml(d.group_name || 'Default')}</span>
-            ${d.activation_date ? `<span class="text-emerald-400">📅 Act: ${escapeHtml(d.activation_date)}</span>` : ''}
+            ${d.is_active === 'Yes' && d.activation_date ? `<span class="text-emerald-400 font-semibold">📅 Act: ${escapeHtml(d.activation_date)}</span>` : ''}
+            ${d.is_active === 'Pending' ? `<span class="text-purple-400 font-medium">🔄 Pending System Sync</span>` : ''}
+            ${d.is_active === 'No' ? `<span class="text-amber-400/90 font-medium">⏳ Not Activated</span>` : ''}
+            ${d.is_active === 'Not Run' ? `<span class="text-blue-400 font-medium">🆕 Not Run</span>` : ''}
             ${d.last_checked_at ? `<span>🕒 ${escapeHtml(d.last_checked_at)}</span>` : ''}
           </div>
         </div>

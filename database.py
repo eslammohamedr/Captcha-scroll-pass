@@ -432,10 +432,13 @@ def get_serials_to_check(
         query += " AND (is_active IN ('Error', 'Unknown') OR status IN ('Error', 'Captcha Failed', 'No Response')) AND is_active != 'Not Run'"
     elif mode == "not_run":
         query += " AND (is_active = 'Not Run' OR status = 'Not Run' OR last_checked_at = '')"
-    elif mode == "pending_sync":
-        query += " AND (is_active = 'Pending' OR status = 'Pending') AND is_active != 'Not Run'"
-    elif mode == "inactive":
+    elif mode in ["pending_sync", "pending"]:
+        query += " AND is_active = 'Pending'"
+    elif mode in ["inactive_only", "inactive"]:
         query += " AND is_active = 'No'"
+    elif mode in ["unactivated", "pending_only"] or pending_only:
+        # Exclude already verified active devices
+        query += " AND is_active != 'Yes'"
     elif mode == "selected" and selected_serials:
         clean = [s.strip().upper() for s in selected_serials if s.strip()]
         placeholders = ",".join("?" for _ in clean)
@@ -444,10 +447,6 @@ def get_serials_to_check(
     elif mode == "group" and group_name.strip():
         query += " AND group_name = ?"
         params.append(group_name.strip())
-
-    if pending_only and not (mode in ["errors", "pending_sync", "inactive", "not_run"] or errors_only):
-        # Exclude already verified active devices (checks all unactivated)
-        query += " AND is_active != 'Yes'"
 
     query += " ORDER BY id ASC;"
 
