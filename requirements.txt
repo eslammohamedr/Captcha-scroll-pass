@@ -6,3 +6,9 @@ openpyxl>=3.1.2
 pandas>=2.0.0
 tqdm>=4.66.0
 requests>=2.31.0
+httpx>=0.27.0
+
+# Web Server & Mobile App Backend
+fastapi>=0.115.0
+uvicorn>=0.32.0
+python-multipart>=0.0.9

@@ -41,5 +41,10 @@ dist/
 # Session export backups and system files
 oppo_results_*.csv
 oppo_results_*.xlsx
+data/*.db
+data/*.db-wal
+data/*.db-shm
+reports/*.xlsx
+reports/*.csv
 nul
 

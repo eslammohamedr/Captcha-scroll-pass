@@ -1,0 +1,468 @@
+<!DOCTYPE html>
+<html lang="en" class="dark">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+  <title>OPPO Sales Activation Monitor</title>
+  <link rel="manifest" href="/static/manifest.json">
+  <meta name="theme-color" content="#161B22">
+  <meta name="apple-mobile-web-app-capable" content="yes">
+  <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+  <link rel="icon" type="image/svg+xml" href="/static/icon.svg">
+  <link rel="apple-touch-icon" href="/static/icon.svg">
+  
+  <!-- Tailwind CSS -->
+  <script src="https://cdn.tailwindcss.com"></script>
+  <script>
+    tailwind.config = {
+      darkMode: 'class',
+      theme: {
+        extend: {
+          colors: {
+            brand: {
+              50: '#ECFDF5',
+              500: '#10B981',
+              600: '#059669',
+              700: '#047857',
+            },
+            dark: {
+              main: '#0D1117',
+              surface: '#161B22',
+              card: '#21262D',
+              border: '#30363D',
+              text: '#C9D1D9',
+              muted: '#8B949E'
+            }
+          }
+        }
+      }
+    }
+  </script>
+  <style>
+    body {
+      background-color: #0D1117;
+      color: #C9D1D9;
+      font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+      -webkit-tap-highlight-color: transparent;
+    }
+    /* Hide scrollbar for tabs */
+    .no-scrollbar::-webkit-scrollbar { display: none; }
+    .no-scrollbar { -ms-overflow-style: none; scrollbar-width: none; }
+  </style>
+</head>
+<body class="min-h-screen flex flex-col pb-20 md:pb-6 select-none">
+
+  <!-- TOP HEADER -->
+  <header class="sticky top-0 z-40 bg-dark-surface/90 backdrop-blur-md border-b border-dark-border px-4 py-3 flex items-center justify-between">
+    <div class="flex items-center space-x-3">
+      <div class="w-9 h-9 rounded-xl bg-gradient-to-tr from-brand-600 to-brand-500 flex items-center justify-center shadow-lg shadow-brand-500/20">
+        <svg class="w-5 h-5 text-white" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 18h.01M8 21h8a2 2 0 002-2V5a2 2 0 00-2-2H8a2 2 0 00-2 2v14a2 2 0 002 2z"/></svg>
+      </div>
+      <div>
+        <h1 class="text-base font-bold text-white leading-tight">OPPO Sales Monitor</h1>
+        <div class="flex items-center space-x-1.5 text-xs text-dark-muted">
+          <span id="headerStatusDot" class="w-2 h-2 rounded-full bg-emerald-500 animate-pulse"></span>
+          <span id="headerStatusText">Ready</span>
+        </div>
+      </div>
+    </div>
+
+    <div class="flex items-center space-x-2">
+      <button onclick="openAddModal()" class="bg-brand-600 hover:bg-brand-500 text-white text-xs font-semibold px-3 py-2 rounded-lg flex items-center space-x-1.5 transition active:scale-95 shadow">
+        <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 4v16m8-8H4"/></svg>
+        <span>Add</span>
+      </button>
+    </div>
+  </header>
+
+  <!-- LIVE JOB FLOATING BANNER (Visible when worker is running) -->
+  <div id="liveJobBanner" class="hidden mx-4 mt-3 bg-gradient-to-r from-emerald-950/80 via-dark-surface to-dark-card border border-brand-500/40 rounded-xl p-3.5 shadow-xl transition-all">
+    <div class="flex items-center justify-between mb-2">
+      <div class="flex items-center space-x-2">
+        <div class="w-2.5 h-2.5 rounded-full bg-brand-500 animate-ping"></div>
+        <span class="text-xs font-bold text-brand-500 uppercase tracking-wider" id="liveJobTitle">Active Verification</span>
+      </div>
+      <button onclick="stopActiveJob()" class="text-xs bg-red-500/20 text-red-400 hover:bg-red-500/30 px-2.5 py-1 rounded-md font-semibold transition active:scale-95">
+        Stop Job
+      </button>
+    </div>
+    <div class="w-full bg-dark-main rounded-full h-2.5 overflow-hidden mb-2">
+      <div id="liveJobProgress" class="bg-gradient-to-r from-brand-600 to-brand-500 h-2.5 rounded-full transition-all duration-300" style="width: 0%"></div>
+    </div>
+    <div class="flex items-center justify-between text-xs text-dark-muted">
+      <span id="liveJobCounts">Checking [0/0] (0%)</span>
+      <span id="liveJobTimer" class="font-mono text-brand-500">00:00:00</span>
+    </div>
+    <div class="mt-1 text-xs text-white truncate" id="liveJobCurrentSerial">Current: —</div>
+  </div>
+
+  <!-- MAIN TAB CONTENT CONTAINER -->
+  <main class="flex-1 max-w-5xl w-full mx-auto p-4">
+
+    <!-- 1. DASHBOARD VIEW -->
+    <div id="viewDashboard" class="space-y-4">
+      <!-- High-Level Metric Cards Grid -->
+      <div class="grid grid-cols-2 md:grid-cols-4 gap-3">
+        <!-- Activated Today -->
+        <div class="bg-gradient-to-br from-emerald-900/40 to-dark-surface border border-emerald-500/30 rounded-xl p-3.5 flex flex-col justify-between">
+          <div class="flex items-center justify-between">
+            <span class="text-xs font-medium text-emerald-400">Activated Today</span>
+            <span class="p-1 rounded-lg bg-emerald-500/10 text-emerald-400">🔥</span>
+          </div>
+          <div class="text-2xl font-black text-white mt-2" id="metricActivatedToday">0</div>
+          <span class="text-[10px] text-dark-muted mt-1">Sales completed today</span>
+        </div>
+
+        <!-- Total Tracked -->
+        <div class="bg-dark-surface border border-dark-border rounded-xl p-3.5 flex flex-col justify-between">
+          <div class="flex items-center justify-between">
+            <span class="text-xs font-medium text-dark-muted">Total Devices</span>
+            <span class="p-1 rounded-lg bg-blue-500/10 text-blue-400">📱</span>
+          </div>
+          <div class="text-2xl font-black text-white mt-2" id="metricTotal">0</div>
+          <span class="text-[10px] text-dark-muted mt-1">In database</span>
+        </div>
+
+        <!-- Pending / Inactive -->
+        <div class="bg-dark-surface border border-dark-border rounded-xl p-3.5 flex flex-col justify-between">
+          <div class="flex items-center justify-between">
+            <span class="text-xs font-medium text-amber-400">Pending Sales</span>
+            <span class="p-1 rounded-lg bg-amber-500/10 text-amber-400">⏳</span>
+          </div>
+          <div class="text-2xl font-black text-white mt-2" id="metricPending">0</div>
+          <span class="text-[10px] text-dark-muted mt-1">Awaiting activation</span>
+        </div>
+
+        <!-- Errors -->
+        <div class="bg-dark-surface border border-dark-border rounded-xl p-3.5 flex flex-col justify-between">
+          <div class="flex items-center justify-between">
+            <span class="text-xs font-medium text-red-400">Errors</span>
+            <span class="p-1 rounded-lg bg-red-500/10 text-red-400">⚠️</span>
+          </div>
+          <div class="text-2xl font-black text-white mt-2" id="metricErrors">0</div>
+          <span class="text-[10px] text-dark-muted mt-1">Needs retry</span>
+        </div>
+      </div>
+
+      <!-- Quick Action Buttons Row -->
+      <div class="bg-dark-surface border border-dark-border rounded-xl p-3 flex flex-wrap gap-2">
+        <button onclick="triggerRun('pending_only')" class="flex-1 min-w-[140px] bg-emerald-600 hover:bg-emerald-500 text-white text-xs font-bold py-2.5 px-3 rounded-lg flex items-center justify-center space-x-1.5 transition active:scale-95 shadow">
+          <span>⚡ Check All Pending</span>
+        </button>
+        <button onclick="triggerRun('all')" class="flex-1 min-w-[140px] bg-dark-card hover:bg-dark-border text-white text-xs font-semibold py-2.5 px-3 rounded-lg flex items-center justify-center space-x-1.5 transition active:scale-95">
+          <span>🔄 Run Full Database</span>
+        </button>
+        <button onclick="openAddModal()" class="bg-dark-card hover:bg-dark-border text-brand-500 text-xs font-semibold py-2.5 px-3 rounded-lg flex items-center justify-center space-x-1.5 transition active:scale-95">
+          <span>➕ Add Serials</span>
+        </button>
+      </div>
+
+      <!-- Live Activity Logs Card -->
+      <div class="bg-dark-surface border border-dark-border rounded-xl p-4">
+        <div class="flex items-center justify-between mb-3">
+          <h2 class="text-xs font-bold text-white uppercase tracking-wider flex items-center space-x-1.5">
+            <span>📋 Live Activity Feed</span>
+          </h2>
+          <span class="text-[11px] text-dark-muted" id="activityCountText">Updated live</span>
+        </div>
+        <div id="activityLogsList" class="space-y-1.5 max-h-64 overflow-y-auto text-xs font-mono">
+          <div class="text-dark-muted py-4 text-center">No recent activity. Click 'Check All Pending' to start.</div>
+        </div>
+      </div>
+    </div>
+
+    <!-- 2. DEVICES VIEW -->
+    <div id="viewDevices" class="hidden space-y-3">
+      <!-- Search and Filter Bar -->
+      <div class="bg-dark-surface border border-dark-border rounded-xl p-3 space-y-2.5">
+        <div class="relative">
+          <input type="text" id="deviceSearchInput" oninput="debounceDeviceSearch()" placeholder="Search serial, model, color..." class="w-full bg-dark-main border border-dark-border rounded-lg pl-9 pr-3 py-2 text-xs text-white placeholder-dark-muted focus:outline-none focus:border-brand-500">
+          <svg class="w-4 h-4 text-dark-muted absolute left-3 top-2.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z"/></svg>
+        </div>
+
+        <!-- Groups Horizontal Tabs -->
+        <div class="flex items-center space-x-1.5 overflow-x-auto no-scrollbar py-1" id="groupsTabsContainer">
+          <!-- Populated by JS: All, Default, Store 1, etc. -->
+        </div>
+
+        <!-- Status Filter Badges -->
+        <div class="flex items-center space-x-1.5 text-xs overflow-x-auto no-scrollbar">
+          <button onclick="setFilterStatus('all')" id="filterBtn_all" class="px-2.5 py-1 rounded-md font-semibold bg-brand-600 text-white text-[11px]">All</button>
+          <button onclick="setFilterStatus('Active')" id="filterBtn_Active" class="px-2.5 py-1 rounded-md font-semibold bg-dark-card text-dark-muted hover:text-white text-[11px]">Active (Yes)</button>
+          <button onclick="setFilterStatus('Inactive')" id="filterBtn_Inactive" class="px-2.5 py-1 rounded-md font-semibold bg-dark-card text-dark-muted hover:text-white text-[11px]">Inactive (Pending)</button>
+          <button onclick="setFilterStatus('Error')" id="filterBtn_Error" class="px-2.5 py-1 rounded-md font-semibold bg-dark-card text-dark-muted hover:text-white text-[11px]">Errors</button>
+          <button onclick="setFilterNewlyActivated()" id="filterBtn_Newly" class="px-2.5 py-1 rounded-md font-semibold bg-dark-card text-amber-400 hover:text-amber-300 text-[11px]">🔥 Activated Today</button>
+        </div>
+      </div>
+
+      <!-- Group Actions Banner (Run Group / Selection Bar) -->
+      <div id="selectionActionBar" class="hidden bg-brand-600/20 border border-brand-500/40 rounded-xl p-2.5 flex items-center justify-between text-xs">
+        <span class="text-white font-medium"><span id="selectedCountSpan">0</span> selected</span>
+        <div class="flex items-center space-x-2">
+          <button onclick="runSelectedDevices()" class="bg-brand-600 text-white font-bold px-3 py-1.5 rounded-lg active:scale-95 shadow">Run Selected</button>
+          <button onclick="deleteSelectedDevices()" class="bg-red-500/20 text-red-400 font-semibold px-2.5 py-1.5 rounded-lg active:scale-95">Delete</button>
+        </div>
+      </div>
+
+      <!-- Group Quick Run Button -->
+      <div class="flex items-center justify-between px-1 text-xs text-dark-muted">
+        <span id="devicesListCountText">Showing 0 devices</span>
+        <button id="btnRunCurrentGroup" onclick="runCurrentGroup()" class="text-brand-500 font-semibold hover:underline flex items-center space-x-1">
+          <span>⚡ Run This Group</span>
+        </button>
+      </div>
+
+      <!-- Devices Cards List -->
+      <div id="devicesCardsList" class="space-y-2">
+        <!-- Rendered by JS -->
+      </div>
+
+      <!-- Pagination Footer -->
+      <div id="paginationControls" class="flex items-center justify-between pt-2 text-xs text-dark-muted">
+        <button onclick="prevPage()" id="btnPrevPage" class="px-3 py-1.5 bg-dark-surface border border-dark-border rounded-lg disabled:opacity-40">Previous</button>
+        <span id="pageInfoSpan">Page 1 of 1</span>
+        <button onclick="nextPage()" id="btnNextPage" class="px-3 py-1.5 bg-dark-surface border border-dark-border rounded-lg disabled:opacity-40">Next</button>
+      </div>
+    </div>
+
+    <!-- 3. CAMERA SCANNER VIEW -->
+    <div id="viewScanner" class="hidden space-y-4">
+      <div class="bg-dark-surface border border-dark-border rounded-xl p-4 text-center">
+        <h2 class="text-sm font-bold text-white mb-1">📷 Scan Barcode / Serial</h2>
+        <p class="text-xs text-dark-muted mb-3">Point phone camera directly at the device box IMEI / Serial barcode.</p>
+
+        <!-- Camera Viewport -->
+        <div class="relative w-full max-w-sm mx-auto aspect-square bg-black rounded-xl overflow-hidden border-2 border-brand-500/50 flex items-center justify-center">
+          <video id="scannerVideo" autoplay playsinline class="w-full h-full object-cover"></video>
+          <!-- Aiming Reticle -->
+          <div class="absolute inset-8 border-2 border-brand-500/70 rounded-lg pointer-events-none flex items-center justify-center">
+            <div class="w-full h-0.5 bg-red-500/80 animate-pulse"></div>
+          </div>
+        </div>
+
+        <!-- Controls -->
+        <div class="mt-4 flex items-center justify-center space-x-3">
+          <button id="btnToggleCamera" onclick="toggleCamera()" class="bg-brand-600 hover:bg-brand-500 text-white text-xs font-bold py-2.5 px-4 rounded-xl shadow active:scale-95">
+            Start Camera
+          </button>
+        </div>
+
+        <div class="mt-4 text-left">
+          <label class="block text-xs font-semibold text-dark-muted mb-1">Target Group for Scanned Devices:</label>
+          <select id="scannerTargetGroup" class="w-full bg-dark-main border border-dark-border rounded-lg p-2 text-xs text-white">
+            <option value="Default">Default</option>
+          </select>
+        </div>
+      </div>
+
+      <!-- Scanned Serials Queue -->
+      <div class="bg-dark-surface border border-dark-border rounded-xl p-4">
+        <div class="flex items-center justify-between mb-2">
+          <h3 class="text-xs font-bold text-white uppercase">Scanned Session Queue</h3>
+          <button onclick="clearScannedQueue()" class="text-xs text-dark-muted hover:text-red-400">Clear</button>
+        </div>
+        <div id="scannedQueueList" class="space-y-1.5 text-xs">
+          <div class="text-dark-muted py-2 text-center">No serials scanned yet.</div>
+        </div>
+      </div>
+    </div>
+
+    <!-- 4. REPORTS TAB (Two Sheets Full Run & Newly Activated) -->
+    <div id="viewReports" class="hidden space-y-4">
+      <div class="bg-gradient-to-r from-emerald-950/40 to-dark-surface border border-brand-500/30 rounded-xl p-4">
+        <h2 class="text-sm font-bold text-white mb-1">📑 Run Reports & Spreadsheets</h2>
+        <p class="text-xs text-dark-muted">
+          Every batch run automatically generates <b>TWO</b> distinct report sheets:
+        </p>
+        <ul class="text-xs text-dark-muted mt-2 space-y-1 list-disc list-inside">
+          <li><b class="text-white">📄 Full Run Sheet:</b> Contains all checked serials with full specs and activation dates.</li>
+          <li><b class="text-emerald-400">🔥 Newly Activated Sheet:</b> Contains <i>only</i> devices that were newly detected as active in that run.</li>
+        </ul>
+      </div>
+
+      <!-- Recent Runs List with Download Links -->
+      <div class="bg-dark-surface border border-dark-border rounded-xl p-4">
+        <h3 class="text-xs font-bold text-white uppercase tracking-wider mb-3">Recent Runs & Download Links</h3>
+        <div id="reportsHistoryList" class="space-y-3">
+          <div class="text-dark-muted py-4 text-center text-xs">Loading run history...</div>
+        </div>
+      </div>
+    </div>
+
+    <!-- 5. SETTINGS & SCHEDULER VIEW -->
+    <div id="viewSettings" class="hidden space-y-4">
+      <!-- Automated Scheduler Section -->
+      <div class="bg-dark-surface border border-dark-border rounded-xl p-4 space-y-3">
+        <div class="flex items-center justify-between">
+          <div>
+            <h2 class="text-sm font-bold text-white">⏰ Automated Poller Schedule</h2>
+            <p class="text-xs text-dark-muted">Control how often unactivated serials run in the background.</p>
+          </div>
+          <label class="relative inline-flex items-center cursor-pointer">
+            <input type="checkbox" id="settingScheduleEnabled" class="sr-only peer">
+            <div class="w-11 h-6 bg-dark-card peer-focus:outline-none rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-gray-300 after:border after:rounded-full after:h-5 after:w-5 after:transition-all peer-checked:bg-brand-600"></div>
+          </label>
+        </div>
+
+        <div>
+          <label class="block text-xs font-semibold text-white mb-1.5">Check Frequency:</label>
+          <select id="settingScheduleInterval" class="w-full bg-dark-main border border-dark-border rounded-lg p-2.5 text-xs text-white focus:border-brand-500">
+            <option value="15">Every 15 Minutes</option>
+            <option value="30">Every 30 Minutes</option>
+            <option value="60">Every 1 Hour (Recommended)</option>
+            <option value="120">Every 2 Hours</option>
+            <option value="360">Every 6 Hours</option>
+            <option value="720">Every 12 Hours</option>
+            <option value="1440">Once a Day (24 Hours)</option>
+          </select>
+          <p class="text-[11px] text-dark-muted mt-1">The scheduler only checks pending/inactive serials to preserve bandwidth and portal limits.</p>
+        </div>
+      </div>
+
+      <!-- Telegram Bot Notification Section -->
+      <div class="bg-dark-surface border border-dark-border rounded-xl p-4 space-y-3">
+        <div class="flex items-center justify-between">
+          <div>
+            <h2 class="text-sm font-bold text-white">✈️ Telegram Bot Alerts</h2>
+            <p class="text-xs text-dark-muted">Get instant notifications when a serial is detected as active.</p>
+          </div>
+          <label class="relative inline-flex items-center cursor-pointer">
+            <input type="checkbox" id="settingTelegramEnabled" class="sr-only peer">
+            <div class="w-11 h-6 bg-dark-card peer-focus:outline-none rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-gray-300 after:border after:rounded-full after:h-5 after:w-5 after:transition-all peer-checked:bg-brand-600"></div>
+          </label>
+        </div>
+
+        <div>
+          <label class="block text-xs font-semibold text-white mb-1">Bot Token (from @BotFather):</label>
+          <input type="password" id="settingTelegramToken" placeholder="123456789:ABCdefGhIJKlmNoPQRstuVWXyz" class="w-full bg-dark-main border border-dark-border rounded-lg p-2.5 text-xs text-white placeholder-dark-muted">
+        </div>
+
+        <div>
+          <label class="block text-xs font-semibold text-white mb-1">Chat ID or Group ID:</label>
+          <input type="text" id="settingTelegramChatId" placeholder="e.g. 987654321 or -100123456789" class="w-full bg-dark-main border border-dark-border rounded-lg p-2.5 text-xs text-white placeholder-dark-muted">
+        </div>
+
+        <div class="flex items-center space-x-2 pt-1">
+          <input type="checkbox" id="settingTelegramSendSheets" class="rounded bg-dark-main border-dark-border text-brand-600 focus:ring-0">
+          <label for="settingTelegramSendSheets" class="text-xs text-white font-medium">Attach both Excel run sheets to Telegram when a batch finishes</label>
+        </div>
+
+        <button onclick="testTelegramConnection()" class="w-full bg-dark-card hover:bg-dark-border text-white text-xs font-semibold py-2 rounded-lg border border-dark-border transition active:scale-95">
+          🧪 Test Telegram Connection
+        </button>
+      </div>
+
+      <!-- Engine Performance Settings -->
+      <div class="bg-dark-surface border border-dark-border rounded-xl p-4 space-y-3">
+        <h2 class="text-sm font-bold text-white">⚙️ Engine Concurrency</h2>
+        <div class="grid grid-cols-2 gap-3">
+          <div>
+            <label class="block text-xs font-semibold text-white mb-1">Parallel Workers:</label>
+            <select id="settingThreadsCount" class="w-full bg-dark-main border border-dark-border rounded-lg p-2 text-xs text-white">
+              <option value="1">1 Worker (Safest)</option>
+              <option value="2">2 Workers (Recommended)</option>
+              <option value="3">3 Workers (Fast)</option>
+              <option value="4">4 Workers</option>
+            </select>
+          </div>
+          <div>
+            <label class="block text-xs font-semibold text-white mb-1">Delay Between Serials:</label>
+            <select id="settingDelaySeconds" class="w-full bg-dark-main border border-dark-border rounded-lg p-2 text-xs text-white">
+              <option value="1.0">1.0s</option>
+              <option value="2.0">2.0s (Recommended)</option>
+              <option value="3.0">3.0s (Anti-bot safe)</option>
+            </select>
+          </div>
+        </div>
+      </div>
+
+      <!-- Save Settings Button -->
+      <button onclick="saveAllSettings()" class="w-full bg-brand-600 hover:bg-brand-500 text-white font-bold py-3 rounded-xl shadow-lg shadow-brand-600/20 active:scale-95 transition">
+        💾 Save Settings
+      </button>
+    </div>
+
+  </main>
+
+  <!-- BOTTOM MOBILE NAVIGATION BAR -->
+  <nav class="fixed bottom-0 left-0 right-0 z-40 bg-dark-surface/95 backdrop-blur-lg border-t border-dark-border px-2 py-1.5 flex items-center justify-around">
+    <!-- Dashboard -->
+    <button onclick="switchTab('Dashboard')" id="tabBtn_Dashboard" class="flex flex-col items-center py-1 px-3 text-brand-500 transition">
+      <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M3 12l2-2m0 0l7-7 7 7M5 10v10a1 1 0 001 1h3m10-11l2 2m-2-2v10a1 1 0 01-1 1h-3m-6 0a1 1 0 001-1v-4a1 1 0 011-1h2a1 1 0 011 1v4a1 1 0 001 1m-6 0h6"/></svg>
+      <span class="text-[10px] font-semibold mt-0.5">Dashboard</span>
+    </button>
+    <!-- Devices -->
+    <button onclick="switchTab('Devices')" id="tabBtn_Devices" class="flex flex-col items-center py-1 px-3 text-dark-muted hover:text-white transition">
+      <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 18h.01M8 21h8a2 2 0 002-2V5a2 2 0 00-2-2H8a2 2 0 00-2 2v14a2 2 0 002 2z"/></svg>
+      <span class="text-[10px] font-semibold mt-0.5">Devices</span>
+    </button>
+    <!-- Scanner -->
+    <button onclick="switchTab('Scanner')" id="tabBtn_Scanner" class="flex flex-col items-center py-1 px-3 text-dark-muted hover:text-white transition">
+      <div class="w-8 h-8 -mt-3 rounded-full bg-brand-600 text-white flex items-center justify-center shadow-lg shadow-brand-500/30">
+        <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 4v1m6 11h2m-6 0h-2v4m0-11v3m0 0h.01M12 12h4.01M16 20h4M4 12h4m12 0h.01M5 8h2a1 1 0 001-1V5a1 1 0 00-1-1H5a1 1 0 00-1 1v2a1 1 0 001 1zm12 0h2a1 1 0 001-1V5a1 1 0 00-1-1h-2a1 1 0 00-1 1v2a1 1 0 001 1zM5 20h2a1 1 0 001-1v-2a1 1 0 00-1-1H5a1 1 0 00-1 1v2a1 1 0 001 1z"/></svg>
+      </div>
+      <span class="text-[10px] font-semibold mt-0.5">Scanner</span>
+    </button>
+    <!-- Reports -->
+    <button onclick="switchTab('Reports')" id="tabBtn_Reports" class="flex flex-col items-center py-1 px-3 text-dark-muted hover:text-white transition">
+      <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z"/></svg>
+      <span class="text-[10px] font-semibold mt-0.5">Sheets</span>
+    </button>
+    <!-- Settings -->
+    <button onclick="switchTab('Settings')" id="tabBtn_Settings" class="flex flex-col items-center py-1 px-3 text-dark-muted hover:text-white transition">
+      <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M10.325 4.317c.426-1.756 2.924-1.756 3.35 0a1.724 1.724 0 002.573 1.066c1.543-.94 3.31.826 2.37 2.37a1.724 1.724 0 001.065 2.572c1.756.426 1.756 2.924 0 3.35a1.724 1.724 0 00-1.066 2.573c.94 1.543-.826 3.31-2.37 2.37a1.724 1.724 0 00-2.572 1.065c-.426 1.756-2.924 1.756-3.35 0a1.724 1.724 0 00-2.573-1.066c-1.543.94-3.31-.826-2.37-2.37a1.724 1.724 0 00-1.065-2.572c-1.756-.426-1.756-2.924 0-3.35a1.724 1.724 0 001.066-2.573c-.94-1.543.826-3.31 2.37-2.37.996.608 2.296.07 2.572-1.065z"/><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15 12a3 3 0 11-6 0 3 3 0 016 0z"/></svg>
+      <span class="text-[10px] font-semibold mt-0.5">Settings</span>
+    </button>
+  </nav>
+
+  <!-- ADD DEVICES MODAL -->
+  <div id="modalAddDevices" class="hidden fixed inset-0 z-50 bg-black/70 backdrop-blur-sm flex items-center justify-center p-4">
+    <div class="bg-dark-surface border border-dark-border rounded-2xl w-full max-w-md p-5 space-y-4 shadow-2xl">
+      <div class="flex items-center justify-between border-b border-dark-border pb-3">
+        <h3 class="text-sm font-bold text-white">Add OPPO Devices</h3>
+        <button onclick="closeAddModal()" class="text-dark-muted hover:text-white">&times;</button>
+      </div>
+
+      <!-- Mode Selector -->
+      <div class="grid grid-cols-2 gap-2 text-xs">
+        <button id="modalTabBulk" onclick="switchAddMode('bulk')" class="py-2 rounded-lg font-bold bg-brand-600 text-white">Paste Serials</button>
+        <button id="modalTabFile" onclick="switchAddMode('file')" class="py-2 rounded-lg font-semibold bg-dark-card text-dark-muted">Upload File</button>
+      </div>
+
+      <div>
+        <label class="block text-xs font-semibold text-white mb-1">Target Group:</label>
+        <div class="flex space-x-2">
+          <select id="modalAddGroupSelect" class="flex-1 bg-dark-main border border-dark-border rounded-lg p-2 text-xs text-white">
+            <option value="Default">Default</option>
+          </select>
+          <button onclick="openNewGroupPrompt()" class="bg-dark-card hover:bg-dark-border text-white text-xs px-3 rounded-lg border border-dark-border">+ Group</button>
+        </div>
+      </div>
+
+      <!-- Paste Input -->
+      <div id="addModeBulkSection">
+        <label class="block text-xs font-semibold text-white mb-1">Serials / IMEIs (One per line):</label>
+        <textarea id="modalBulkSerialsText" rows="6" placeholder="OPPO12345678&#10;864201234567890&#10;864201234567891" class="w-full bg-dark-main border border-dark-border rounded-lg p-2.5 text-xs text-white placeholder-dark-muted font-mono focus:border-brand-500"></textarea>
+      </div>
+
+      <!-- File Upload Input -->
+      <div id="addModeFileSection" class="hidden">
+        <label class="block text-xs font-semibold text-white mb-1">Upload .txt, .csv, or .xlsx:</label>
+        <input type="file" id="modalFileInput" accept=".txt,.csv,.xlsx,.xls" class="w-full bg-dark-main border border-dark-border rounded-lg p-2 text-xs text-white file:mr-3 file:py-1 file:px-3 file:rounded-md file:border-0 file:text-xs file:font-semibold file:bg-brand-600 file:text-white">
+      </div>
+
+      <!-- Actions -->
+      <div class="flex items-center justify-end space-x-2 pt-2">
+        <button onclick="closeAddModal()" class="px-4 py-2 text-xs font-semibold text-dark-muted hover:text-white">Cancel</button>
+        <button onclick="submitAddDevices()" id="btnSubmitAddDevices" class="px-5 py-2 text-xs font-bold bg-brand-600 hover:bg-brand-500 text-white rounded-lg active:scale-95 shadow">Save Devices</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- TOAST NOTIFICATION CONTAINER -->
+  <div id="toastContainer" class="fixed top-4 right-4 z-50 space-y-2 pointer-events-none"></div>
+
+  <!-- Application Logic -->
+  <script src="/static/app.js"></script>
+</body>
+</html>

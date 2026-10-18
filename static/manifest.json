@@ -1,0 +1,18 @@
+{
+  "name": "OPPO Sales Activation Monitor",
+  "short_name": "OppoMonitor",
+  "description": "Real-time OPPO device activation tracking & sales management",
+  "start_url": "/",
+  "display": "standalone",
+  "background_color": "#0D1117",
+  "theme_color": "#161B22",
+  "orientation": "portrait-primary",
+  "icons": [
+    {
+      "src": "/static/icon.svg",
+      "sizes": "any",
+      "type": "image/svg+xml",
+      "purpose": "any maskable"
+    }
+  ]
+}
