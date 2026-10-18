@@ -95,9 +95,10 @@ def init_db() -> None:
                 description TEXT DEFAULT ''
             );
         """)
-        # Insert Default group
+        # Insert Default and Not Run groups
         now = datetime.datetime.now().strftime("%Y-%m-%d %H:%M:%S")
         cur.execute("INSERT OR IGNORE INTO groups (name, created_at, description) VALUES (?, ?, ?);", ("Default", now, "Standard default group"))
+        cur.execute("INSERT OR IGNORE INTO groups (name, created_at, description) VALUES (?, ?, ?);", ("Not Run", now, "New serials awaiting initial verification check"))
 
         # Run history table
         cur.execute("""
@@ -233,10 +234,10 @@ def delete_group(name: str) -> bool:
 
 # --- Device Helpers ---
 
-def upsert_device(serial: str, group_name: str = "Default", notes: str = "") -> dict[str, Any]:
+def upsert_device(serial: str, group_name: str = "Not Run", notes: str = "") -> dict[str, Any]:
     """Add a new serial or update its group."""
     serial = str(serial).strip().upper()
-    group_name = str(group_name).strip() or "Default"
+    group_name = str(group_name).strip() or "Not Run"
     now = datetime.datetime.now().strftime("%Y-%m-%d %H:%M:%S")
 
     with get_db_cursor() as cur:
@@ -244,10 +245,10 @@ def upsert_device(serial: str, group_name: str = "Default", notes: str = "") -> 
         cur.execute("INSERT OR IGNORE INTO groups (name, created_at) VALUES (?, ?);", (group_name, now))
 
         cur.execute("""
-            INSERT INTO devices (serial, group_name, first_added_at, notes)
-            VALUES (?, ?, ?, ?)
+            INSERT INTO devices (serial, group_name, first_added_at, is_active, status, notes)
+            VALUES (?, ?, ?, 'Not Run', 'Not Run', ?)
             ON CONFLICT(serial) DO UPDATE SET
-                group_name = CASE WHEN excluded.group_name != 'Default' THEN excluded.group_name ELSE devices.group_name END,
+                group_name = CASE WHEN excluded.group_name != 'Not Run' THEN excluded.group_name ELSE devices.group_name END,
                 notes = CASE WHEN excluded.notes != '' THEN excluded.notes ELSE devices.notes END;
         """, (serial, group_name, now, notes))
 
@@ -256,9 +257,9 @@ def upsert_device(serial: str, group_name: str = "Default", notes: str = "") -> 
         return dict(row) if row else {}
 
 
-def bulk_upsert_devices(serials: list[str], group_name: str = "Default") -> tuple[int, int]:
+def bulk_upsert_devices(serials: list[str], group_name: str = "Not Run") -> tuple[int, int]:
     """Bulk insert serials into a group. Returns (added_count, total_provided)."""
-    group_name = str(group_name).strip() or "Default"
+    group_name = str(group_name).strip() or "Not Run"
     now = datetime.datetime.now().strftime("%Y-%m-%d %H:%M:%S")
     added = 0
     clean_serials = [s.strip().upper() for s in serials if s and s.strip()]
@@ -267,8 +268,8 @@ def bulk_upsert_devices(serials: list[str], group_name: str = "Default") -> tupl
         cur.execute("INSERT OR IGNORE INTO groups (name, created_at) VALUES (?, ?);", (group_name, now))
         for sn in clean_serials:
             cur.execute("""
-                INSERT INTO devices (serial, group_name, first_added_at)
-                VALUES (?, ?, ?)
+                INSERT INTO devices (serial, group_name, first_added_at, is_active, status)
+                VALUES (?, ?, ?, 'Not Run', 'Not Run')
                 ON CONFLICT(serial) DO NOTHING;
             """, (sn, group_name, now))
             if cur.rowcount > 0:
@@ -378,11 +379,14 @@ def get_devices(
             query += " AND is_active = 'No'"
             count_query += " AND is_active = 'No'"
         elif stat == "Pending":
-            query += " AND (is_active = 'Pending' OR status = 'Pending')"
-            count_query += " AND (is_active = 'Pending' OR status = 'Pending')"
+            query += " AND (is_active = 'Pending' OR status = 'Pending') AND is_active != 'Not Run'"
+            count_query += " AND (is_active = 'Pending' OR status = 'Pending') AND is_active != 'Not Run'"
         elif stat == "Error":
-            query += " AND (is_active IN ('Error', 'Unknown') OR status IN ('Error', 'Captcha Failed', 'No Response'))"
-            count_query += " AND (is_active IN ('Error', 'Unknown') OR status IN ('Error', 'Captcha Failed', 'No Response'))"
+            query += " AND (is_active IN ('Error', 'Unknown') OR status IN ('Error', 'Captcha Failed', 'No Response')) AND is_active != 'Not Run'"
+            count_query += " AND (is_active IN ('Error', 'Unknown') OR status IN ('Error', 'Captcha Failed', 'No Response')) AND is_active != 'Not Run'"
+        elif stat == "Not Run":
+            query += " AND (is_active = 'Not Run' OR status = 'Not Run' OR last_checked_at = '')"
+            count_query += " AND (is_active = 'Not Run' OR status = 'Not Run' OR last_checked_at = '')"
 
     if newly_activated_only:
         # Detected active today
@@ -425,9 +429,11 @@ def get_serials_to_check(
     params: list[Any] = []
 
     if mode == "errors" or errors_only:
-        query += " AND (is_active IN ('Error', 'Unknown') OR status IN ('Error', 'Captcha Failed', 'No Response'))"
+        query += " AND (is_active IN ('Error', 'Unknown') OR status IN ('Error', 'Captcha Failed', 'No Response')) AND is_active != 'Not Run'"
+    elif mode == "not_run":
+        query += " AND (is_active = 'Not Run' OR status = 'Not Run' OR last_checked_at = '')"
     elif mode == "pending_sync":
-        query += " AND (is_active = 'Pending' OR status = 'Pending')"
+        query += " AND (is_active = 'Pending' OR status = 'Pending') AND is_active != 'Not Run'"
     elif mode == "inactive":
         query += " AND is_active = 'No'"
     elif mode == "selected" and selected_serials:
@@ -439,7 +445,7 @@ def get_serials_to_check(
         query += " AND group_name = ?"
         params.append(group_name.strip())
 
-    if pending_only and not (mode in ["errors", "pending_sync", "inactive"] or errors_only):
+    if pending_only and not (mode in ["errors", "pending_sync", "inactive", "not_run"] or errors_only):
         # Exclude already verified active devices (checks all unactivated)
         query += " AND is_active != 'Yes'"
 
@@ -480,8 +486,9 @@ def get_dashboard_stats() -> dict[str, Any]:
                 COUNT(*) AS total,
                 SUM(CASE WHEN is_active = 'Yes' THEN 1 ELSE 0 END) AS active_count,
                 SUM(CASE WHEN is_active = 'No' THEN 1 ELSE 0 END) AS inactive_count,
-                SUM(CASE WHEN is_active = 'Pending' OR status = 'Pending' THEN 1 ELSE 0 END) AS pending_count,
-                SUM(CASE WHEN is_active IN ('Error', 'Unknown') OR status IN ('Error', 'Captcha Failed', 'No Response') THEN 1 ELSE 0 END) AS error_count,
+                SUM(CASE WHEN (is_active = 'Pending' OR status = 'Pending') AND is_active != 'Not Run' AND status != 'Not Run' THEN 1 ELSE 0 END) AS pending_count,
+                SUM(CASE WHEN is_active = 'Not Run' OR status = 'Not Run' OR (last_checked_at = '' AND is_active NOT IN ('Yes', 'No', 'Pending')) THEN 1 ELSE 0 END) AS not_run_count,
+                SUM(CASE WHEN (is_active IN ('Error', 'Unknown') OR status IN ('Error', 'Captcha Failed', 'No Response')) AND is_active != 'Not Run' AND status != 'Not Run' THEN 1 ELSE 0 END) AS error_count,
                 SUM(CASE WHEN is_active = 'Yes' AND activated_at >= ? AND activated_at <= ? THEN 1 ELSE 0 END) AS activated_today_count
             FROM devices;
         """, (today_start, today_end))
@@ -495,6 +502,7 @@ def get_dashboard_stats() -> dict[str, Any]:
             "active": row["active_count"] or 0,
             "inactive": row["inactive_count"] or 0,
             "pending": row["pending_count"] or 0,
+            "not_run": row["not_run_count"] or 0,
             "errors": row["error_count"] or 0,
             "activated_today": row["activated_today_count"] or 0,
             "groups_count": groups_cnt or 0,
