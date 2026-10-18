@@ -418,12 +418,15 @@ def get_serials_to_check(
     group_name: str = "",
     selected_serials: list[str] | None = None,
     pending_only: bool = False,
+    errors_only: bool = False,
 ) -> list[str]:
     """Retrieve list of serials matching specific run criteria."""
     query = "SELECT serial FROM devices WHERE 1=1"
     params: list[Any] = []
 
-    if mode == "selected" and selected_serials:
+    if mode == "errors" or errors_only:
+        query += " AND (is_active IN ('Error', 'Unknown') OR status IN ('Error', 'Captcha Failed', 'No Response'))"
+    elif mode == "selected" and selected_serials:
         clean = [s.strip().upper() for s in selected_serials if s.strip()]
         placeholders = ",".join("?" for _ in clean)
         query += f" AND serial IN ({placeholders})"
@@ -432,7 +435,7 @@ def get_serials_to_check(
         query += " AND group_name = ?"
         params.append(group_name.strip())
 
-    if pending_only:
+    if pending_only and not (mode == "errors" or errors_only):
         # Exclude already verified active devices
         query += " AND is_active != 'Yes'"
 

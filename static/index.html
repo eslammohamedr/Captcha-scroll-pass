@@ -154,13 +154,18 @@
         </div>
 
         <!-- Errors -->
-        <div onclick="switchTab('Devices'); setFilterStatus('Error');" class="bg-dark-surface border border-dark-border hover:border-red-500/50 cursor-pointer rounded-xl p-3 flex flex-col justify-between transition active:scale-95">
-          <div class="flex items-center justify-between">
+        <div class="bg-dark-surface border border-dark-border hover:border-red-500/50 rounded-xl p-3 flex flex-col justify-between transition">
+          <div class="flex items-center justify-between cursor-pointer" onclick="switchTab('Devices'); setFilterStatus('Error');">
             <span class="text-xs font-medium text-red-400">Errors</span>
             <span class="p-1 rounded-lg bg-red-500/10 text-red-400">⚠️</span>
           </div>
-          <div class="text-2xl font-black text-white mt-1.5" id="metricErrors">0</div>
-          <span class="text-[10px] text-dark-muted">Needs retry</span>
+          <div class="text-2xl font-black text-white mt-1 cursor-pointer" onclick="switchTab('Devices'); setFilterStatus('Error');" id="metricErrors">0</div>
+          <div class="mt-1 flex items-center justify-between pt-0.5">
+            <span class="text-[10px] text-dark-muted">Needs retry</span>
+            <button onclick="event.stopPropagation(); triggerRunErrorsOnly();" title="Retry only devices with errors" class="text-[10px] font-bold text-red-400 hover:text-white bg-red-500/20 hover:bg-red-600 px-2 py-0.5 rounded transition active:scale-95 flex items-center space-x-1">
+              <span>Retry ⚡</span>
+            </button>
+          </div>
         </div>
       </div>
 
@@ -205,10 +210,13 @@
 
       <!-- Quick Action Buttons Row -->
       <div class="bg-dark-surface border border-dark-border rounded-xl p-3 flex flex-wrap gap-2">
-        <button onclick="triggerRun('pending_only')" class="flex-1 min-w-[140px] bg-emerald-600 hover:bg-emerald-500 text-white text-xs font-bold py-2.5 px-3 rounded-lg flex items-center justify-center space-x-1.5 transition active:scale-95 shadow">
-          <span>⚡ Check All Pending</span>
+        <button onclick="triggerRun('pending_only')" class="flex-1 min-w-[130px] bg-emerald-600 hover:bg-emerald-500 text-white text-xs font-bold py-2.5 px-3 rounded-lg flex items-center justify-center space-x-1.5 transition active:scale-95 shadow">
+          <span>⚡ Check Pending</span>
         </button>
-        <button onclick="triggerRun('all')" class="flex-1 min-w-[140px] bg-dark-card hover:bg-dark-border text-white text-xs font-semibold py-2.5 px-3 rounded-lg flex items-center justify-center space-x-1.5 transition active:scale-95">
+        <button onclick="triggerRunErrorsOnly()" class="flex-1 min-w-[130px] bg-red-950/40 hover:bg-red-900/60 text-red-400 hover:text-red-300 border border-red-500/30 text-xs font-bold py-2.5 px-3 rounded-lg flex items-center justify-center space-x-1.5 transition active:scale-95">
+          <span>⚠️ Retry Errors (<span id="dashBtnErrorsCount">18</span>)</span>
+        </button>
+        <button onclick="triggerRun('all')" class="flex-1 min-w-[130px] bg-dark-card hover:bg-dark-border text-white text-xs font-semibold py-2.5 px-3 rounded-lg flex items-center justify-center space-x-1.5 transition active:scale-95">
           <span>🔄 Run Full Database</span>
         </button>
         <button onclick="openAddModal()" class="bg-dark-card hover:bg-dark-border text-brand-500 text-xs font-semibold py-2.5 px-3 rounded-lg flex items-center justify-center space-x-1.5 transition active:scale-95">
@@ -264,12 +272,17 @@
         </div>
       </div>
 
-      <!-- Group Quick Run Button -->
+      <!-- Group Quick Run Button & Retry Errors Button -->
       <div class="flex items-center justify-between px-1 text-xs text-dark-muted">
         <span id="devicesListCountText">Showing 0 devices</span>
-        <button id="btnRunCurrentGroup" onclick="runCurrentGroup()" class="text-brand-500 font-semibold hover:underline flex items-center space-x-1">
-          <span>⚡ Run This Group</span>
-        </button>
+        <div class="flex items-center space-x-2">
+          <button id="btnRetryErrorsView" onclick="triggerRunErrorsOnly()" class="hidden bg-red-500/20 hover:bg-red-500/30 text-red-400 font-bold px-2 py-1 rounded text-[11px] border border-red-500/30 active:scale-95 transition flex items-center space-x-1">
+            <span>⚡ Retry All Errors</span>
+          </button>
+          <button id="btnRunCurrentGroup" onclick="runCurrentGroup()" class="text-brand-500 font-semibold hover:underline flex items-center space-x-1">
+            <span>⚡ Run This Group</span>
+          </button>
+        </div>
       </div>
 
       <!-- Devices Cards List -->

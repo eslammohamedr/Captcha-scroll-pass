@@ -151,27 +151,34 @@ class WorkerService:
         group_name: str = "",
         selected_serials: list[str] | None = None,
         pending_only: bool = False,
+        errors_only: bool = False,
     ) -> tuple[bool, str]:
         """
         Start a new verification run.
-        Modes: 'all', 'group', 'selected', 'pending_only'.
+        Modes: 'all', 'group', 'selected', 'pending_only', 'errors'.
         """
         if self.is_running:
             return False, "A verification run is already in progress. Please wait or stop it first."
 
+        is_errors = errors_only or (mode == "errors")
+        effective_mode = "errors" if is_errors else mode
+
         serials = database.get_serials_to_check(
-            mode=mode,
+            mode=effective_mode,
             group_name=group_name,
             selected_serials=selected_serials,
             pending_only=pending_only,
+            errors_only=is_errors,
         )
 
         if not serials:
+            if is_errors:
+                return False, "No error devices found. All devices are successfully verified!"
             return False, "No devices match the specified criteria or all are already active."
 
         self.is_running = True
         self.stop_requested.clear()
-        self.run_type = mode
+        self.run_type = effective_mode
         self.target_group = group_name
         self.total_items = len(serials)
         self.completed_items = 0

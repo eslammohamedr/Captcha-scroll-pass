@@ -213,6 +213,9 @@ async function loadDashboardStats() {
     document.getElementById('metricTotal').innerText = data.total || 0;
     document.getElementById('metricErrors').innerText = data.errors || 0;
 
+    const btnErrCount = document.getElementById('dashBtnErrorsCount');
+    if (btnErrCount) btnErrCount.innerText = data.errors || 0;
+
     if (data.worker && data.worker.logs) {
       renderActivityLogs(data.worker.logs);
     }
@@ -387,6 +390,15 @@ function updateFilterButtons() {
       ? 'px-2.5 py-1 rounded-md font-bold bg-amber-500 text-black text-[11px]'
       : 'px-2.5 py-1 rounded-md font-semibold bg-dark-card text-amber-400 hover:text-amber-300 text-[11px]';
   }
+
+  const btnRetryErrorsView = document.getElementById('btnRetryErrorsView');
+  if (btnRetryErrorsView) {
+    if (state.statusFilter === 'Error') {
+      btnRetryErrorsView.classList.remove('hidden');
+    } else {
+      btnRetryErrorsView.classList.add('hidden');
+    }
+  }
 }
 
 function debounceDeviceSearch() {
@@ -538,6 +550,10 @@ async function triggerRun(mode, extra = {}) {
   } catch (e) {
     showToast('Failed to start run', 'error');
   }
+}
+
+async function triggerRunErrorsOnly() {
+  await triggerRun('errors', { errors_only: true });
 }
 
 function checkSingleSerial(serial) {

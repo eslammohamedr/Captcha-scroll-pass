@@ -67,10 +67,11 @@ class GroupCreateRequest(BaseModel):
 
 
 class RunJobRequest(BaseModel):
-    mode: str = Field(default="all")  # 'all', 'group', 'selected', 'pending_only'
+    mode: str = Field(default="all")  # 'all', 'group', 'selected', 'pending_only', 'errors'
     group_name: str = Field(default="")
     serials: list[str] = Field(default_factory=list)
     pending_only: bool = Field(default=False)
+    errors_only: bool = Field(default=False)
 
 
 class UpdateSettingsRequest(BaseModel):
@@ -246,13 +247,24 @@ def trigger_run(req: RunJobRequest) -> dict[str, Any]:
     - 'group': check devices in a specific group
     - 'selected': check only selected serials
     - 'pending_only': check only unactivated/pending devices
+    - 'errors': check only devices with errors/captcha failures
     """
     ok, msg = worker_service.start_run(
         mode=req.mode,
         group_name=req.group_name,
         selected_serials=req.serials,
         pending_only=req.pending_only,
+        errors_only=req.errors_only or (req.mode == "errors"),
     )
+    if not ok:
+        raise HTTPException(status_code=400, detail=msg)
+    return {"success": True, "message": msg}
+
+
+@app.post("/api/run/errors")
+def trigger_run_errors() -> dict[str, Any]:
+    """Trigger a verification check run targeting only failed / error devices."""
+    ok, msg = worker_service.start_run(mode="errors", errors_only=True)
     if not ok:
         raise HTTPException(status_code=400, detail=msg)
     return {"success": True, "message": msg}
