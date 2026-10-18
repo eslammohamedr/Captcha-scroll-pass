@@ -87,7 +87,9 @@ class TelegramTestRequest(BaseModel):
 def get_stats() -> dict[str, Any]:
     """Retrieve high-level dashboard metrics."""
     stats = database.get_dashboard_stats()
-    stats["worker"] = worker_service.get_status()
+    w_status = worker_service.get_status()
+    stats["worker"] = w_status
+    stats["next_run"] = w_status.get("next_run", {})
     return stats
 
 

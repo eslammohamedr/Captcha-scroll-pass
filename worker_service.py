@@ -66,6 +66,58 @@ class WorkerService:
                 self.logs.pop(0)
         logger.info("[%s] %s: %s", now_str, level.upper(), message)
 
+    def get_next_run_info(self) -> dict[str, Any]:
+        """Compute the next scheduled run time and countdown."""
+        settings = database.get_all_settings()
+        enabled = settings.get("schedule_enabled", "0") in ("1", "true", "True")
+        try:
+            interval_min = int(settings.get("schedule_interval_minutes", "60"))
+        except ValueError:
+            interval_min = 60
+
+        if not enabled or interval_min <= 0:
+            return {
+                "enabled": False,
+                "interval_minutes": interval_min,
+                "next_run_timestamp": None,
+                "next_run_clock": "",
+                "remaining_seconds": 0,
+                "remaining_str": "Paused / Disabled",
+                "display_text": "Scheduler Paused",
+            }
+
+        interval_seconds = interval_min * 60
+        now = time.time()
+        next_time = self.last_scheduled_check_time + interval_seconds
+
+        if next_time < now and not self.is_running:
+            remaining = 0
+            rem_str = "due now"
+        elif next_time < now and self.is_running:
+            remaining = interval_seconds
+            next_time = now + interval_seconds
+            m_rem = remaining // 60
+            s_rem = remaining % 60
+            rem_str = f"in {m_rem}m {s_rem}s" if m_rem > 0 else f"in {s_rem}s"
+        else:
+            remaining = max(0, int(next_time - now))
+            m_rem = remaining // 60
+            s_rem = remaining % 60
+            rem_str = f"in {m_rem}m {s_rem}s" if m_rem > 0 else f"in {s_rem}s"
+
+        dt_next = datetime.datetime.fromtimestamp(next_time)
+        next_run_clock = dt_next.strftime("%H:%M:%S")
+
+        return {
+            "enabled": True,
+            "interval_minutes": interval_min,
+            "next_run_timestamp": int(next_time),
+            "next_run_clock": next_run_clock,
+            "remaining_seconds": remaining,
+            "remaining_str": rem_str,
+            "display_text": f"at {next_run_clock} ({rem_str})",
+        }
+
     def get_status(self) -> dict[str, Any]:
         """Return the current execution state for live UI updates."""
         elapsed = 0.0
@@ -88,6 +140,7 @@ class WorkerService:
             "current_serial": self.current_serial,
             "newly_activated": self.newly_activated_count,
             "elapsed_seconds": int(elapsed),
+            "next_run": self.get_next_run_info(),
             "logs": recent_logs,
             "last_summary": self.last_run_summary,
         }

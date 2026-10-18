@@ -76,6 +76,9 @@ function startStatusPolling() {
         const data = await res.json();
         state.workerStatus = data;
         renderLiveJobBanner(data);
+        if (data.next_run) {
+          renderNextRun(data.next_run);
+        }
       }
     } catch (e) {}
 
@@ -83,6 +86,7 @@ function startStatusPolling() {
     state.pollTimer = setTimeout(poll, interval);
   };
   poll();
+  startNextRunCountdownTicker();
 }
 
 function renderLiveJobBanner(status) {
@@ -137,6 +141,59 @@ function renderActivityLogs(logs) {
   }).reverse().join('');
 }
 
+// --- Scheduler Next Run Live Display ---
+let countdownTickerStarted = false;
+
+function renderNextRun(nextRun) {
+  if (!nextRun) return;
+  state.nextRun = nextRun;
+
+  const dashClock = document.getElementById('dashNextRunClock');
+  const dashCount = document.getElementById('dashNextRunCountdown');
+  const setDisplay = document.getElementById('setNextRunDisplay');
+
+  if (!nextRun.enabled) {
+    if (dashClock) dashClock.innerText = 'Paused';
+    if (dashCount) dashCount.innerText = 'Automated scheduler is turned off';
+    if (setDisplay) setDisplay.innerText = 'Scheduler Paused (Disabled)';
+    return;
+  }
+
+  const remText = nextRun.remaining_str || 'due now';
+  if (dashClock) dashClock.innerText = `at ${nextRun.next_run_clock} (${remText})`;
+  if (dashCount) dashCount.innerText = `Auto-checking unactivated serials every ${nextRun.interval_minutes}m`;
+  if (setDisplay) setDisplay.innerText = `at ${nextRun.next_run_clock} (${remText})`;
+}
+
+function startNextRunCountdownTicker() {
+  if (countdownTickerStarted) return;
+  countdownTickerStarted = true;
+
+  setInterval(() => {
+    if (!state.nextRun || !state.nextRun.enabled || state.nextRun.remaining_seconds === undefined) return;
+
+    if (state.nextRun.remaining_seconds > 0) {
+      state.nextRun.remaining_seconds--;
+      const rem = state.nextRun.remaining_seconds;
+      const m = Math.floor(rem / 60);
+      const s = rem % 60;
+      const remStr = m > 0 ? `in ${m}m ${String(s).padStart(2, '0')}s` : `in ${s}s`;
+      state.nextRun.remaining_str = remStr;
+
+      const dashClock = document.getElementById('dashNextRunClock');
+      const setDisplay = document.getElementById('setNextRunDisplay');
+      if (dashClock) dashClock.innerText = `at ${state.nextRun.next_run_clock} (${remStr})`;
+      if (setDisplay) setDisplay.innerText = `at ${state.nextRun.next_run_clock} (${remStr})`;
+    } else {
+      state.nextRun.remaining_str = 'due now';
+      const dashClock = document.getElementById('dashNextRunClock');
+      const setDisplay = document.getElementById('setNextRunDisplay');
+      if (dashClock) dashClock.innerText = `at ${state.nextRun.next_run_clock} (due now)`;
+      if (setDisplay) setDisplay.innerText = `at ${state.nextRun.next_run_clock} (due now)`;
+    }
+  }, 1000);
+}
+
 // --- Dashboard Metrics ---
 async function loadDashboardStats() {
   try {
@@ -152,6 +209,9 @@ async function loadDashboardStats() {
 
     if (data.worker && data.worker.logs) {
       renderActivityLogs(data.worker.logs);
+    }
+    if (data.next_run) {
+      renderNextRun(data.next_run);
     }
     loadDatabaseInfo();
   } catch (e) {}

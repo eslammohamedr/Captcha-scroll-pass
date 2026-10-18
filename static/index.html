@@ -161,6 +161,23 @@
         </a>
       </div>
 
+      <!-- Scheduler Status & Next Run Pill -->
+      <div class="bg-gradient-to-r from-dark-surface to-dark-card border border-dark-border rounded-xl p-3 flex items-center justify-between text-xs shadow-sm">
+        <div class="flex items-center space-x-2.5">
+          <div class="w-8 h-8 rounded-lg bg-emerald-500/10 text-brand-500 flex items-center justify-center font-bold text-sm">⏰</div>
+          <div>
+            <div class="font-bold text-white flex items-center space-x-1.5">
+              <span>Next Auto-Run:</span>
+              <span id="dashNextRunClock" class="text-brand-500 font-mono">Calculating...</span>
+            </div>
+            <div class="text-[11px] text-dark-muted" id="dashNextRunCountdown">Auto-checking unactivated serials</div>
+          </div>
+        </div>
+        <button onclick="switchTab('Settings')" class="text-[11px] text-dark-muted hover:text-white font-medium bg-dark-main px-2.5 py-1.5 rounded-lg border border-dark-border active:scale-95 transition flex items-center space-x-1">
+          <span>Schedule ⚙️</span>
+        </button>
+      </div>
+
       <!-- Quick Action Buttons Row -->
       <div class="bg-dark-surface border border-dark-border rounded-xl p-3 flex flex-wrap gap-2">
         <button onclick="triggerRun('pending_only')" class="flex-1 min-w-[140px] bg-emerald-600 hover:bg-emerald-500 text-white text-xs font-bold py-2.5 px-3 rounded-lg flex items-center justify-center space-x-1.5 transition active:scale-95 shadow">
@@ -333,6 +350,12 @@
             <option value="1440">Once a Day (24 Hours)</option>
           </select>
           <p class="text-[11px] text-dark-muted mt-1">The scheduler only checks pending/inactive serials to preserve bandwidth and portal limits.</p>
+        </div>
+
+        <!-- Next Run Live Display Box -->
+        <div class="p-2.5 rounded-lg bg-dark-main border border-dark-border flex items-center justify-between text-xs">
+          <span class="text-dark-muted">Next Scheduled Run:</span>
+          <span id="setNextRunDisplay" class="font-bold text-brand-500 font-mono">Calculating...</span>
         </div>
       </div>
 
