@@ -6,6 +6,7 @@ sheets (Full Run Sheet + Newly Activated Sheet) directly to Telegram.
 
 from __future__ import annotations
 
+import datetime
 import logging
 from pathlib import Path
 from typing import Any
@@ -17,16 +18,17 @@ import database
 logger = logging.getLogger("oppo_notifier")
 
 
-def get_telegram_config() -> tuple[str, str, bool, bool]:
+def get_telegram_config() -> tuple[str, str, bool, bool, bool]:
     """Retrieve telegram configuration from database settings.
-    Returns (token, chat_id, is_enabled, send_sheets).
+    Returns (token, chat_id, is_enabled, send_sheets, notify_runs).
     """
     settings = database.get_all_settings()
     token = settings.get("telegram_bot_token", "").strip()
     chat_id = settings.get("telegram_chat_id", "").strip()
     enabled = settings.get("telegram_notifications_enabled", "0") in ("1", "true", "True")
     send_sheets = settings.get("telegram_send_sheets", "1") in ("1", "true", "True")
-    return token, chat_id, enabled, send_sheets
+    notify_runs = settings.get("telegram_notify_runs", "1") in ("1", "true", "True")
+    return token, chat_id, enabled, send_sheets, notify_runs
 
 
 def send_telegram_message(
@@ -98,7 +100,7 @@ def notify_activation(device: dict[str, Any], previous_status: str = "Unknown") 
     Triggered the moment a serial transitions to 'Active' (was not active before).
     Dispatches instant notification to Telegram with phone specs and activation details.
     """
-    token, chat_id, enabled, _ = get_telegram_config()
+    token, chat_id, enabled, *rest = get_telegram_config()
     if not enabled or not token or not chat_id:
         return False
 
@@ -132,6 +134,38 @@ def notify_activation(device: dict[str, Any], previous_status: str = "Unknown") 
     return success
 
 
+def notify_run_start(run_info: dict[str, Any]) -> bool:
+    """
+    Triggered when a verification run begins (scheduled or manual).
+    Dispatches a run started alert to Telegram.
+    """
+    token, chat_id, enabled, _, notify_runs = get_telegram_config()
+    if not enabled or not notify_runs or not token or not chat_id:
+        return False
+
+    is_scheduled = run_info.get("is_scheduled", False)
+    run_type = str(run_info.get("run_type", "Manual Run")).upper()
+    group = run_info.get("target_group")
+    group_str = f" | Group: <b>{group}</b>" if group else ""
+    total = run_info.get("total", 0)
+    threads = run_info.get("threads", 2)
+    start_time = run_info.get("start_time") or datetime.datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+
+    title_icon = "⏰" if is_scheduled else "🚀"
+    title_label = "Scheduled Auto-Check Started" if is_scheduled else "Verification Run Started"
+
+    message = (
+        f"{title_icon} <b>OPPO {title_label}</b>\n\n"
+        f"🎯 <b>Run Mode:</b> [{run_type}]{group_str}\n"
+        f"🔢 <b>Devices to Check:</b> {total} serials\n"
+        f"⚙️ <b>Workers:</b> {threads} parallel threads\n"
+        f"🕒 <b>Started At:</b> {start_time}\n\n"
+        "<i>🔔 Real-time alerts will follow for new activations, and full reports will be sent upon completion.</i>"
+    )
+
+    return send_telegram_message(token, chat_id, message)
+
+
 def notify_run_completion(
     summary: dict[str, Any],
     full_sheet_path: Path | str | None = None,
@@ -141,12 +175,14 @@ def notify_run_completion(
     Triggered when a full batch run or scheduled run completes.
     Sends summary statistics and automatically sends the TWO Excel sheets requested.
     """
-    token, chat_id, enabled, send_sheets = get_telegram_config()
-    if not enabled or not token or not chat_id:
+    token, chat_id, enabled, send_sheets, notify_runs = get_telegram_config()
+    if not enabled or not notify_runs or not token or not chat_id:
         return False
 
-    run_type = summary.get("run_type", "Manual Run")
-    group_str = f" | Group: {summary.get('target_group')}" if summary.get("target_group") else ""
+    is_scheduled = summary.get("is_scheduled", False)
+    run_type = str(summary.get("run_type", "Manual Run")).upper()
+    group = summary.get("target_group")
+    group_str = f" | Group: <b>{group}</b>" if group else ""
     total = summary.get("total_checked", 0)
     newly_act = summary.get("newly_activated", 0)
     active_cnt = summary.get("active_count", 0)
@@ -154,20 +190,39 @@ def notify_run_completion(
     pending_cnt = summary.get("pending_count", 0)
     errors_cnt = summary.get("error_count", 0)
     time_str = summary.get("elapsed_str", "")
+    finished_at = summary.get("finished_at") or datetime.datetime.now().strftime("%Y-%m-%d %H:%M:%S")
 
-    header_icon = "🎉" if newly_act > 0 else "📊"
+    title_icon = "🎉" if newly_act > 0 else ("⏰" if is_scheduled else "📊")
+    title_label = "Scheduled Auto-Check Finished" if is_scheduled else "Verification Run Finished"
+
     newly_line = f"🔥 <b>Newly Activated:</b> {newly_act} devices\n" if newly_act > 0 else "ℹ️ <b>Newly Activated:</b> 0 devices\n"
 
+    newly_devices_block = ""
+    newly_list = summary.get("newly_activated_devices") or []
+    if newly_list:
+        lines = []
+        for d in newly_list[:8]:
+            sn = d.get("serial", "")
+            mod = d.get("model_name", "OPPO")
+            col = d.get("color", "")
+            col_str = f" ({col})" if col else ""
+            lines.append(f"  • <code>{sn}</code> - {mod}{col_str}")
+        if len(newly_list) > 8:
+            lines.append(f"  <i>...and {len(newly_list) - 8} more</i>")
+        newly_devices_block = "<b>Detected Active Devices:</b>\n" + "\n".join(lines) + "\n\n"
+
     message = (
-        f"{header_icon} <b>OPPO Verification Run Completed</b>\n\n"
-        f"🎯 <b>Mode:</b> {run_type}{group_str}\n"
+        f"{title_icon} <b>OPPO {title_label}</b>\n\n"
+        f"🎯 <b>Mode:</b> [{run_type}]{group_str}\n"
         f"⏱ <b>Duration:</b> {time_str}\n"
         f"🔢 <b>Total Processed:</b> {total} devices\n"
         f"✅ <b>Total Active:</b> {active_cnt}\n"
         f"{newly_line}"
+        f"{newly_devices_block}"
         f"⏳ <b>Still Inactive:</b> {inactive_cnt}\n"
         f"🔄 <b>Pending Sync:</b> {pending_cnt}\n"
-        f"⚠️ <b>Check Errors (Failed):</b> {errors_cnt}\n\n"
+        f"⚠️ <b>Check Errors:</b> {errors_cnt}\n"
+        f"🕒 <b>Finished At:</b> {finished_at}\n\n"
         "📎 <i>Full reports attached below.</i>"
     )
 

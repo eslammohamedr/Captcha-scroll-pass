@@ -152,6 +152,7 @@ class WorkerService:
         selected_serials: list[str] | None = None,
         pending_only: bool = False,
         errors_only: bool = False,
+        is_scheduled: bool = False,
     ) -> tuple[bool, str]:
         """
         Start a new verification run.
@@ -187,18 +188,39 @@ class WorkerService:
         self.start_timestamp = time.time()
 
         # Record in database run history
+        run_label = f"Scheduled [{mode}]" if is_scheduled else mode
         self.current_run_id = database.create_run_history_record(
-            run_type=mode,
+            run_type=run_label,
             target_group=group_name,
             total=len(serials),
         )
 
-        self.add_log("info", f"Started verification run [{mode}]. Target serials: {len(serials)}")
+        settings = database.get_all_settings()
+        req_threads = int(settings.get("threads_count", "2"))
+        num_workers = max(1, min(req_threads, len(serials)))
+
+        run_start_info = {
+            "run_id": self.current_run_id,
+            "run_type": run_label,
+            "is_scheduled": is_scheduled,
+            "target_group": group_name,
+            "total": len(serials),
+            "threads": num_workers,
+            "start_time": datetime.datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
+        }
+
+        # Send Telegram notification when verification run begins!
+        try:
+            notifier.notify_run_start(run_start_info)
+        except Exception as e_tg:
+            logger.error("Error sending Telegram run start notification: %s", e_tg)
+
+        self.add_log("info", f"Started {'scheduled ' if is_scheduled else ''}verification run [{mode}]. Target serials: {len(serials)}")
 
         # Launch background executor thread
         t = threading.Thread(
             target=self._execute_batch,
-            args=(serials, mode, group_name),
+            args=(serials, mode, group_name, is_scheduled),
             daemon=True,
         )
         t.start()
@@ -212,7 +234,7 @@ class WorkerService:
         self.add_log("warning", "Stop requested by user. Finishing active browser requests...")
         return True
 
-    def _execute_batch(self, serials: list[str], mode: str, group_name: str) -> None:
+    def _execute_batch(self, serials: list[str], mode: str, group_name: str, is_scheduled: bool = False) -> None:
         """Coordinator thread executing Playwright worker pool and handling results."""
         settings = database.get_all_settings()
         req_threads = int(settings.get("threads_count", "2"))
@@ -429,16 +451,19 @@ class WorkerService:
 
         summary = {
             "run_id": self.current_run_id,
-            "run_type": mode,
+            "run_type": f"Scheduled [{mode}]" if is_scheduled else mode,
             "target_group": group_name,
+            "is_scheduled": is_scheduled,
             "total_checked": len(final_devices_list),
             "newly_activated": len(newly_activated_devices),
+            "newly_activated_devices": newly_activated_devices,
             "active_count": active_cnt,
             "inactive_count": inactive_cnt,
             "pending_count": pending_cnt,
             "error_count": error_cnt,
             "elapsed_seconds": int(total_time),
             "elapsed_str": elapsed_str,
+            "finished_at": datetime.datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
             "full_sheet_excel": full_sheet_xlsx.name,
             "full_sheet_csv": full_sheet_csv.name,
             "newly_activated_excel": new_sheet_xlsx.name,
@@ -462,7 +487,7 @@ class WorkerService:
 
         self.add_log(
             "success",
-            f"Run finished in {elapsed_str}! Processed: {len(final_devices_list)} | Newly Activated: {len(newly_activated_devices)}",
+            f"{'Scheduled ' if is_scheduled else ''}Run finished in {elapsed_str}! Processed: {len(final_devices_list)} | Newly Activated: {len(newly_activated_devices)}",
         )
 
         # Notify Telegram with summary and attach BOTH sheets!
@@ -497,8 +522,8 @@ class WorkerService:
                         if not self.is_running:
                             self.last_scheduled_check_time = now
                             self.add_log("info", f"⏰ [Scheduler] Triggering recurring check (every {interval_min}m)...")
-                            # Check only unactivated / pending devices
-                            self.start_run(mode="all", pending_only=True)
+                            # Check only unactivated / pending devices with is_scheduled=True
+                            self.start_run(mode="all", pending_only=True, is_scheduled=True)
                 except Exception as exc:
                     logger.error("Scheduler daemon loop error: %s", exc)
 

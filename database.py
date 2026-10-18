@@ -139,6 +139,7 @@ def init_db() -> None:
             ("telegram_chat_id", "", "Telegram Chat ID or Group ID to send alerts to"),
             ("telegram_notifications_enabled", "0", "1 to enable instant Telegram alerts, 0 to disable"),
             ("telegram_send_sheets", "1", "1 to automatically attach both Excel sheets to Telegram upon run completion, 0 to disable"),
+            ("telegram_notify_runs", "1", "1 to send Telegram alerts when verification runs start & finish, 0 to disable"),
         ]
 
         for k, v, d in default_settings:

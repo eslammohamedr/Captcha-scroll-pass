@@ -545,6 +545,11 @@
           <label for="settingTelegramSendSheets" class="text-xs text-white font-medium">Attach both Excel run sheets to Telegram when a batch finishes</label>
         </div>
 
+        <div class="flex items-center space-x-2">
+          <input type="checkbox" id="settingTelegramNotifyRuns" class="rounded bg-dark-main border-dark-border text-brand-600 focus:ring-0">
+          <label for="settingTelegramNotifyRuns" class="text-xs text-white font-medium">Notify on Telegram when runs start &amp; finish (Scheduled + Manual)</label>
+        </div>
+
         <button onclick="testTelegramConnection()" class="w-full bg-dark-card hover:bg-dark-border text-white text-xs font-semibold py-2 rounded-lg border border-dark-border transition active:scale-95">
           🧪 Test Telegram Connection
         </button>

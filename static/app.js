@@ -1534,6 +1534,7 @@ async function loadSettings() {
     document.getElementById('settingTelegramToken').value = settings.telegram_bot_token || '';
     document.getElementById('settingTelegramChatId').value = settings.telegram_chat_id || '';
     document.getElementById('settingTelegramSendSheets').checked = settings.telegram_send_sheets === '1';
+    document.getElementById('settingTelegramNotifyRuns').checked = settings.telegram_notify_runs !== '0';
 
     document.getElementById('settingThreadsCount').value = settings.threads_count || '2';
     document.getElementById('settingDelaySeconds').value = settings.delay_seconds || '2.0';
@@ -1548,6 +1549,7 @@ async function saveAllSettings() {
     telegram_bot_token: document.getElementById('settingTelegramToken').value.trim(),
     telegram_chat_id: document.getElementById('settingTelegramChatId').value.trim(),
     telegram_send_sheets: document.getElementById('settingTelegramSendSheets').checked ? '1' : '0',
+    telegram_notify_runs: document.getElementById('settingTelegramNotifyRuns').checked ? '1' : '0',
     threads_count: document.getElementById('settingThreadsCount').value,
     delay_seconds: document.getElementById('settingDelaySeconds').value
   };
