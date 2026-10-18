@@ -263,6 +263,7 @@ class WorkerService:
 
                         self.current_serial = sn
                         w_tag = f"[W#{w_id}]"
+                        self.add_log("info", f"{w_tag} [{idx}/{len(serials)}] Checking {sn}...")
 
                         try:
                             res = check_oppo_serial(page, sn, fine_tune_offset=offset)
